@@ -38,11 +38,12 @@ Sub GerarTopOfenders()
 
     ' Variáveis Globais
     Dim sumAnswered As Double, sumCSATWeighted As Double
+    Dim sumSQS As Double, countSQS As Long
     Dim sumQMS As Double, sumSQSWeighted As Double
     Dim gCSAT As Double, gSQS As Double
 
     sumAnswered = 0: sumCSATWeighted = 0
-    sumQMS = 0: sumSQSWeighted = 0
+    sumQMS = 0: sumSQS = 0: countSQS = 0
 
     ' ==========================================
     ' LER DADOS DE CSAT/SQS
@@ -69,11 +70,12 @@ Sub GerarTopOfenders()
             sumCSATWeighted = sumCSATWeighted + (pctCSAT * answered)
 
             sumQMS = sumQMS + qms
-            sumSQSWeighted = sumSQSWeighted + (pctSQS * qms)
+            sumSQS = sumSQS + pctSQS
+            countSQS = countSQS + 1
 
             ' Agente
             If Not dictAgent.Exists(agentName) Then
-                dictAgent.Add agentName, Array(0, 0, 0, 0, 0, 0) ' [Ans, AnsWeighted, QMS, QMSWeighted, sumABS, countABS]
+                dictAgent.Add agentName, Array(0, 0, 0, 0, 0, 0, 0) ' [Ans, AnsWeighted, QMS, SQS_Sum, SQS_Count, sumABS, countABS]
             End If
 
             Dim arr As Variant
@@ -81,13 +83,14 @@ Sub GerarTopOfenders()
             arr(0) = arr(0) + answered
             arr(1) = arr(1) + (pctCSAT * answered)
             arr(2) = arr(2) + qms
-            arr(3) = arr(3) + (pctSQS * qms)
+            arr(3) = arr(3) + pctSQS
+            arr(4) = arr(4) + 1
             dictAgent(agentName) = arr
         End If
     Next i
 
     If sumAnswered > 0 Then gCSAT = sumCSATWeighted / sumAnswered Else gCSAT = 0
-    If sumQMS > 0 Then gSQS = sumSQSWeighted / sumQMS Else gSQS = 0
+    If countSQS > 0 Then gSQS = sumSQS / countSQS Else gSQS = 0
 
     ' ==========================================
     ' LER DADOS DE ABS
@@ -102,13 +105,13 @@ Sub GerarTopOfenders()
             absTotal = Val2(wsABS.Cells(i, 3).Value)
 
             If Not dictAgent.Exists(aName) Then
-                dictAgent.Add aName, Array(0, 0, 0, 0, 0, 0)
+                dictAgent.Add aName, Array(0, 0, 0, 0, 0, 0, 0)
             End If
 
             Dim arr2 As Variant
             arr2 = dictAgent(aName)
-            arr2(4) = arr2(4) + absTotal
-            arr2(5) = arr2(5) + 1
+            arr2(5) = arr2(5) + absTotal
+            arr2(6) = arr2(6) + 1
             dictAgent(aName) = arr2
         End If
     Next i
@@ -166,9 +169,9 @@ Sub GerarTopOfenders()
         ag_ans = d(0)
         If ag_ans > 0 Then ag_csat = d(1) / ag_ans Else ag_csat = 0
         ag_qms = d(2)
-        If ag_qms > 0 Then ag_sqs = d(3) / ag_qms Else ag_sqs = 0
+        If d(4) > 0 Then ag_sqs = d(3) / d(4) Else ag_sqs = 0
 
-        If d(5) > 0 Then ag_abs = d(4) / d(5) Else ag_abs = 0
+        If d(6) > 0 Then ag_abs = d(5) / d(6) Else ag_abs = 0
 
         ' 1. Real Impacts
         ag_csat_imp = (ag_csat - gCSAT) * ag_ans

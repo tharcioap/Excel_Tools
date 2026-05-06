@@ -37,21 +37,19 @@ df_csat['AGENT'] = df_csat['AGENT'].astype(str).str.strip().str.upper()
 df_abs['Nome'] = df_abs['Nome'].astype(str).str.strip().str.upper()
 
 # Filtrar pelos meses selecionados
-df_csat_filtered = df_csat[df_csat['Month'].isin(MESES_ANALISADOS)].copy()
-df_abs_filtered = df_abs[df_abs['AnoMes'].isin(MESES_ANALISADOS)].copy()
+df_csat_filtered = df_csat[df_csat['Month'].str.title().isin([m.title() for m in MESES_ANALISADOS])].copy()
+df_abs_filtered = df_abs[df_abs['AnoMes'].str.title().isin([m.title() for m in MESES_ANALISADOS])].copy()
 
 if df_csat_filtered.empty:
     print(f"Aviso: Nenhum dado de CSAT/SQS encontrado para os meses: {MESES_ANALISADOS}")
     exit()
 
 # Calcular Médias Globais do período
-global_csat_answered = df_csat_filtered['Answered CSAT'].sum()
-global_csat_sum = (df_csat_filtered['% CSAT'] * df_csat_filtered['Answered CSAT']).sum()
+global_csat_answered = df_csat_filtered[df_csat_filtered.columns[3]].sum()
+global_csat_sum = (df_csat_filtered['% CSAT'] * df_csat_filtered[df_csat_filtered.columns[3]]).sum()
 global_csat = global_csat_sum / global_csat_answered if global_csat_answered > 0 else 0
 
-global_sqs_qms = df_csat_filtered['QMS Submission'].sum()
-global_sqs_sum = (df_csat_filtered['% SQS Agent Level'] * df_csat_filtered['QMS Submission']).sum()
-global_sqs = global_sqs_sum / global_sqs_qms if global_sqs_qms > 0 else 0
+global_sqs = df_csat_filtered['% SQS Agent Level'].mean()
 
 # Agregar dados por agente (CSAT e SQS)
 def weighted_avg(values, weights):
@@ -62,10 +60,10 @@ def weighted_avg(values, weights):
 
 agent_csat = df_csat_filtered.groupby('AGENT').apply(
     lambda x: pd.Series({
-        'Answered CSAT': x['Answered CSAT'].sum(),
-        '% CSAT': weighted_avg(x['% CSAT'], x['Answered CSAT']),
+        df_csat_filtered.columns[3]: x[df_csat_filtered.columns[3]].sum(),
+        '% CSAT': weighted_avg(x['% CSAT'], x[df_csat_filtered.columns[3]]),
         'QMS Submission': x['QMS Submission'].sum(),
-        '% SQS Agent Level': weighted_avg(x['% SQS Agent Level'], x['QMS Submission'])
+        '% SQS Agent Level': x['% SQS Agent Level'].mean()
     })
 ).reset_index()
 
@@ -75,13 +73,13 @@ agent_abs = df_abs_filtered.groupby('Nome').agg({
 }).reset_index().rename(columns={'Nome': 'AGENT'})
 
 # Juntar as bases
-merged_data = pd.merge(agent_csat, agent_abs, on='AGENT', how='left')
-merged_data['ABS Total'] = merged_data['ABS Total'].fillna(0)
+merged_data = pd.merge(agent_csat, agent_abs, on='AGENT', how='outer')
+merged_data = merged_data.fillna(0)
 
 # ==========================================
 # 1. CÁLCULOS REAIS
 # ==========================================
-merged_data['CSAT Impact'] = (merged_data['% CSAT'] - global_csat) * merged_data['Answered CSAT']
+merged_data['CSAT Impact'] = (merged_data['% CSAT'] - global_csat) * merged_data[df_csat_filtered.columns[3]]
 merged_data['SQS Impact'] = (merged_data['% SQS Agent Level'] - global_sqs) * merged_data['QMS Submission']
 merged_data['Total Real Impact'] = merged_data['CSAT Impact'] + merged_data['SQS Impact']
 
@@ -89,10 +87,11 @@ merged_data['Total Real Impact'] = merged_data['CSAT Impact'] + merged_data['SQS
 # 2. CÁLCULOS PROJETADOS (Meta ABS = 5%)
 # ==========================================
 # Proporção = (95% de presença desejada) / (Presença real)
-merged_data['Proportion'] = 0.95 / (1.0 - merged_data['ABS Total'])
-merged_data.loc[merged_data['ABS Total'] >= 1.0, 'Proportion'] = 0 # Evita erro de divisão se ABS for 100%
+merged_data['Proportion'] = 0.0
+mask = merged_data['ABS Total'] < 1.0
+merged_data.loc[mask, 'Proportion'] = 0.95 / (1.0 - merged_data.loc[mask, 'ABS Total'])
 
-merged_data['Proj Answered CSAT'] = merged_data['Answered CSAT'] * merged_data['Proportion']
+merged_data['Proj Answered CSAT'] = merged_data[df_csat_filtered.columns[3]] * merged_data['Proportion']
 num_months = len(MESES_ANALISADOS)
 max_qms_projected = 8 * num_months
 merged_data['Proj QMS Submission'] = merged_data['QMS Submission'] * merged_data['Proportion']
@@ -110,7 +109,7 @@ def sort_ranking(df, sort_col, cols_to_keep, ascending=True):
     return df.sort_values(by=sort_col, ascending=ascending)[cols_to_keep].copy()
 
 # A. Impacto Apenas CSAT
-rank_csat = sort_ranking(merged_data, 'CSAT Impact', ['AGENT', '% CSAT', 'Answered CSAT', 'CSAT Impact'])
+rank_csat = sort_ranking(merged_data, 'CSAT Impact', ['AGENT', '% CSAT', df_csat_filtered.columns[3], 'CSAT Impact'])
 # B. Impacto Apenas SQS
 rank_sqs = sort_ranking(merged_data, 'SQS Impact', ['AGENT', '% SQS Agent Level', 'QMS Submission', 'SQS Impact'])
 # C. Apenas ABS (Do maior para o menor = piores primeiro)
