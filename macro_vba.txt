@@ -1,0 +1,341 @@
+' =========================================================================
+' Macro VBA: Top Ofenders Hitlist
+' Copie este código para um Módulo VBA na sua planilha.
+'
+' Esta macro calcula o impacto real e projetado em CSAT e SQS, considerando
+' as regras de ABS (Meta = 5%).
+' =========================================================================
+
+Sub GerarTopOfenders()
+    Dim wsCSAT As Worksheet, wsABS As Worksheet, wsTO As Worksheet
+    Dim lastRowCSAT As Long, lastRowABS As Long
+    Dim dictAgent As Object
+    Dim mesesParaAnalisar As String
+    Dim arrMeses As Variant
+    Dim i As Long
+
+    ' 1. Configurar Meses (Você pode editar esta string ou pedir via InputBox)
+    mesesParaAnalisar = InputBox("Digite os meses que deseja analisar separados por vírgula (ex: Jan/2026, Fev/2026):", "Meses Analisados", "Jan/2026, Fev/2026, Mar/2026, Abr/2026, Mai/2026")
+    If mesesParaAnalisar = "" Then Exit Sub
+
+    arrMeses = Split(Replace(mesesParaAnalisar, " ", ""), ",")
+
+    ' Definir Planilhas
+    On Error Resume Next
+    Set wsCSAT = ThisWorkbook.Sheets("csat-sqs")
+    Set wsABS = ThisWorkbook.Sheets("abs")
+    On Error GoTo 0
+
+    If wsCSAT Is Nothing Or wsABS Is Nothing Then
+        MsgBox "As planilhas 'csat-sqs' e 'abs' não foram encontradas!", vbCritical
+        Exit Sub
+    End If
+
+    lastRowCSAT = wsCSAT.Cells(wsCSAT.Rows.Count, 1).End(xlUp).Row
+    lastRowABS = wsABS.Cells(wsABS.Rows.Count, 1).End(xlUp).Row
+
+    Set dictAgent = CreateObject("Scripting.Dictionary")
+
+    ' Variáveis Globais
+    Dim sumAnswered As Double, sumCSATWeighted As Double
+    Dim sumQMS As Double, sumSQSWeighted As Double
+    Dim gCSAT As Double, gSQS As Double
+
+    sumAnswered = 0: sumCSATWeighted = 0
+    sumQMS = 0: sumSQSWeighted = 0
+
+    ' ==========================================
+    ' LER DADOS DE CSAT/SQS
+    ' ==========================================
+    For i = 2 To lastRowCSAT
+        Dim rawMonth As String, mappedMonth As String
+        rawMonth = Trim(wsCSAT.Cells(i, 1).Value)
+        mappedMonth = MapMonth(rawMonth)
+
+        If IsInArray(mappedMonth, arrMeses) Then
+            Dim agentName As String
+            agentName = UCase(Trim(wsCSAT.Cells(i, 2).Value))
+
+            Dim pctCSAT As Double, answered As Double
+            Dim pctSQS As Double, qms As Double
+
+            pctCSAT = Val2(wsCSAT.Cells(i, 3).Value)
+            answered = Val2(wsCSAT.Cells(i, 4).Value)
+            pctSQS = Val2(wsCSAT.Cells(i, 5).Value)
+            qms = Val2(wsCSAT.Cells(i, 6).Value)
+
+            ' Globais
+            sumAnswered = sumAnswered + answered
+            sumCSATWeighted = sumCSATWeighted + (pctCSAT * answered)
+
+            sumQMS = sumQMS + qms
+            sumSQSWeighted = sumSQSWeighted + (pctSQS * qms)
+
+            ' Agente
+            If Not dictAgent.Exists(agentName) Then
+                dictAgent.Add agentName, Array(0, 0, 0, 0, 0, 0) ' [Ans, AnsWeighted, QMS, QMSWeighted, sumABS, countABS]
+            End If
+
+            Dim arr As Variant
+            arr = dictAgent(agentName)
+            arr(0) = arr(0) + answered
+            arr(1) = arr(1) + (pctCSAT * answered)
+            arr(2) = arr(2) + qms
+            arr(3) = arr(3) + (pctSQS * qms)
+            dictAgent(agentName) = arr
+        End If
+    Next i
+
+    If sumAnswered > 0 Then gCSAT = sumCSATWeighted / sumAnswered Else gCSAT = 0
+    If sumQMS > 0 Then gSQS = sumSQSWeighted / sumQMS Else gSQS = 0
+
+    ' ==========================================
+    ' LER DADOS DE ABS
+    ' ==========================================
+    For i = 2 To lastRowABS
+        Dim absMonth As String
+        absMonth = Trim(wsABS.Cells(i, 1).Value)
+        If IsInArray(absMonth, arrMeses) Then
+            Dim aName As String
+            aName = UCase(Trim(wsABS.Cells(i, 2).Value))
+            Dim absTotal As Double
+            absTotal = Val2(wsABS.Cells(i, 3).Value)
+
+            If Not dictAgent.Exists(aName) Then
+                dictAgent.Add aName, Array(0, 0, 0, 0, 0, 0)
+            End If
+
+            Dim arr2 As Variant
+            arr2 = dictAgent(aName)
+            arr2(4) = arr2(4) + absTotal
+            arr2(5) = arr2(5) + 1
+            dictAgent(aName) = arr2
+        End If
+    Next i
+
+    ' ==========================================
+    ' PREPARAR ABA TOP OFENDERS
+    ' ==========================================
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    ThisWorkbook.Sheets("Top Ofenders").Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+
+    Set wsTO = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+    wsTO.Name = "Top Ofenders"
+
+    wsTO.Cells(1, 1).Value = "MÉDIAS GLOBAIS DO PERÍODO:"
+    wsTO.Cells(2, 1).Value = "% CSAT Global:"
+    wsTO.Cells(2, 2).Value = gCSAT
+    wsTO.Cells(2, 2).NumberFormat = "0.00%"
+
+    wsTO.Cells(3, 1).Value = "% SQS Global:"
+    wsTO.Cells(3, 2).Value = gSQS
+    wsTO.Cells(3, 2).NumberFormat = "0.00%"
+
+    wsTO.Cells(4, 1).Value = "Meses Analisados:"
+    wsTO.Cells(4, 2).Value = mesesParaAnalisar
+
+    ' Cabeçalhos Gerais (Tabela Base Temporária)
+    Dim wsTemp As Worksheet
+    Set wsTemp = ThisWorkbook.Sheets.Add
+    wsTemp.Name = "TempCalc_TO"
+    wsTemp.Cells(1, 1).Resize(1, 15).Value = Array("AGENT", "AVG_CSAT", "ANS", "CSAT_IMP", "AVG_SQS", "QMS", "SQS_IMP", "ABS", "TOT_REAL_IMP", "PROJ_ANS", "PROJ_QMS", "PROJ_CSAT_IMP", "PROJ_SQS_IMP", "TOT_PROJ_IMP", "ABS_VIEW")
+
+    Dim rowIdx As Long
+    rowIdx = 2
+
+    Dim numMonths As Long
+    numMonths = UBound(arrMeses) + 1
+    Dim maxQMS As Double
+    maxQMS = 8 * numMonths
+
+    Dim key As Variant
+    For Each key In dictAgent.Keys
+        Dim d As Variant
+        d = dictAgent(key)
+
+        Dim ag_ans As Double, ag_csat As Double, ag_csat_imp As Double
+        Dim ag_qms As Double, ag_sqs As Double, ag_sqs_imp As Double
+        Dim ag_abs As Double, tot_real_imp As Double
+        Dim proj_ans As Double, proj_qms As Double
+        Dim proj_csat_imp As Double, proj_sqs_imp As Double, tot_proj_imp As Double
+        Dim proportion As Double
+
+        ag_ans = d(0)
+        If ag_ans > 0 Then ag_csat = d(1) / ag_ans Else ag_csat = 0
+        ag_qms = d(2)
+        If ag_qms > 0 Then ag_sqs = d(3) / ag_qms Else ag_sqs = 0
+
+        If d(5) > 0 Then ag_abs = d(4) / d(5) Else ag_abs = 0
+
+        ' 1. Real Impacts
+        ag_csat_imp = (ag_csat - gCSAT) * ag_ans
+        ag_sqs_imp = (ag_sqs - gSQS) * ag_qms
+        tot_real_imp = ag_csat_imp + ag_sqs_imp
+
+        ' 2. Projected Impacts
+        If ag_abs >= 1 Then
+            proportion = 0
+        Else
+            proportion = 0.95 / (1# - ag_abs)
+        End If
+
+        proj_ans = ag_ans * proportion
+        proj_qms = ag_qms * proportion
+        If proj_qms > maxQMS Then proj_qms = maxQMS
+
+        proj_csat_imp = (ag_csat - gCSAT) * proj_ans
+        proj_sqs_imp = (ag_sqs - gSQS) * proj_qms
+        tot_proj_imp = proj_csat_imp + proj_sqs_imp
+
+        ' Gravar no Temp
+        wsTemp.Cells(rowIdx, 1).Value = key
+        wsTemp.Cells(rowIdx, 2).Value = ag_csat
+        wsTemp.Cells(rowIdx, 3).Value = ag_ans
+        wsTemp.Cells(rowIdx, 4).Value = ag_csat_imp
+        wsTemp.Cells(rowIdx, 5).Value = ag_sqs
+        wsTemp.Cells(rowIdx, 6).Value = ag_qms
+        wsTemp.Cells(rowIdx, 7).Value = ag_sqs_imp
+        wsTemp.Cells(rowIdx, 8).Value = ag_abs
+        wsTemp.Cells(rowIdx, 9).Value = tot_real_imp
+        wsTemp.Cells(rowIdx, 10).Value = proj_ans
+        wsTemp.Cells(rowIdx, 11).Value = proj_qms
+        wsTemp.Cells(rowIdx, 12).Value = proj_csat_imp
+        wsTemp.Cells(rowIdx, 13).Value = proj_sqs_imp
+        wsTemp.Cells(rowIdx, 14).Value = tot_proj_imp
+        wsTemp.Cells(rowIdx, 15).Value = ag_abs
+
+        rowIdx = rowIdx + 1
+    Next key
+
+    ' ==========================================
+    ' GERAR OS 7 RANKINGS (Usando Sort VBA)
+    ' ==========================================
+    Dim lastT As Long
+    lastT = rowIdx - 1
+
+    ' 1. Apenas CSAT
+    CopySorted wsTemp, wsTO, "1. CSAT Impact", Array(1, 2, 3, 4), 4, lastT, 6, 1, xlAscending
+    ' 2. Apenas SQS
+    CopySorted wsTemp, wsTO, "2. SQS Impact", Array(1, 5, 6, 7), 7, lastT, 6, 6, xlAscending
+    ' 3. Apenas ABS
+    CopySorted wsTemp, wsTO, "3. ABS Ranking", Array(1, 8), 8, lastT, 6, 11, xlDescending
+
+    ' 4. Real Total (CSAT + SQS)
+    CopySorted wsTemp, wsTO, "4. Real (CSAT+SQS)", Array(1, 4, 7, 9), 9, lastT, 20, 1, xlAscending
+    ' 5. Real Total c/ ABS
+    CopySorted wsTemp, wsTO, "5. Real c/ Visual ABS", Array(1, 9, 8), 9, lastT, 20, 6, xlAscending
+    ' 6. Proj Total
+    CopySorted wsTemp, wsTO, "6. Projetado (Alvo 5%)", Array(1, 12, 13, 14), 14, lastT, 20, 10, xlAscending
+    ' 7. Proj Total c/ ABS
+    CopySorted wsTemp, wsTO, "7. Proj c/ Visual ABS", Array(1, 14, 8), 14, lastT, 20, 15, xlAscending
+
+    ' Limpar Temp
+    Application.DisplayAlerts = False
+    wsTemp.Delete
+    Application.DisplayAlerts = True
+
+    ' Formatação Final
+    wsTO.Cells.EntireColumn.AutoFit
+    wsTO.Activate
+    MsgBox "Planilha 'Top Ofenders' gerada com sucesso!", vbInformation
+End Sub
+
+' --- Funções Auxiliares ---
+Private Sub CopySorted(wsSrc As Worksheet, wsDest As Worksheet, title As String, cols As Variant, sortCol As Integer, lr As Long, destRow As Long, destCol As Long, order As XlSortOrder)
+    wsDest.Cells(destRow, destCol).Value = title
+    wsDest.Cells(destRow, destCol).Font.Bold = True
+
+    Dim c As Integer
+    For c = 0 To UBound(cols)
+        wsDest.Cells(destRow + 1, destCol + c).Value = wsSrc.Cells(1, cols(c)).Value
+        wsDest.Cells(destRow + 1, destCol + c).Font.Bold = True
+    Next c
+
+    If lr < 2 Then Exit Sub
+
+    ' Copiar valores
+    Dim r As Long
+    For r = 2 To lr
+        For c = 0 To UBound(cols)
+            wsDest.Cells(destRow + r, destCol + c).Value = wsSrc.Cells(r, cols(c)).Value
+            ' Format as number 2 decimals
+            If IsNumeric(wsDest.Cells(destRow + r, destCol + c).Value) Then
+                wsDest.Cells(destRow + r, destCol + c).NumberFormat = "0.00"
+            End If
+        Next c
+    Next r
+
+    ' Ordenar o bloco na Destino
+    Dim rng As Range
+    Set rng = wsDest.Range(wsDest.Cells(destRow + 1, destCol), wsDest.Cells(destRow + lr, destCol + UBound(cols)))
+
+    ' SortCol Relativo à Seleção (Índice dentro do Array cols)
+    Dim sortColRel As Integer
+    sortColRel = 1
+    For c = 0 To UBound(cols)
+        If cols(c) = sortCol Then sortColRel = c + 1
+    Next c
+
+    wsDest.Sort.SortFields.Clear
+    wsDest.Sort.SortFields.Add Key:=rng.Columns(sortColRel), SortOn:=xlSortOnValues, order:=order, DataOption:=xlSortNormal
+    With wsDest.Sort
+        .SetRange rng
+        .Header = xlYes
+        .MatchCase = False
+        .Orientation = xlTopToBottom
+        .Apply
+    End With
+End Sub
+
+Private Function MapMonth(ByVal raw As String) As String
+    If InStr(raw, "M ") > 0 Then
+        Dim parts() As String
+        parts = Split(raw, " ")
+        If UBound(parts) >= 1 Then
+            Dim dt() As String
+            dt = Split(parts(1), "/")
+            If UBound(dt) = 1 Then
+                Dim mName As String
+                Select Case dt(0)
+                    Case "01": mName = "Jan"
+                    Case "02": mName = "Fev"
+                    Case "03": mName = "Mar"
+                    Case "04": mName = "Abr"
+                    Case "05": mName = "Mai"
+                    Case "06": mName = "Jun"
+                    Case "07": mName = "Jul"
+                    Case "08": mName = "Ago"
+                    Case "09": mName = "Set"
+                    Case "10": mName = "Out"
+                    Case "11": mName = "Nov"
+                    Case "12": mName = "Dez"
+                End Select
+                MapMonth = mName & "/20" & dt(1)
+                Exit Function
+            End If
+        End If
+    End If
+    MapMonth = raw
+End Function
+
+Private Function IsInArray(val As String, arr As Variant) As Boolean
+    Dim i As Long
+    For i = LBound(arr) To UBound(arr)
+        If UCase(Trim(val)) = UCase(Trim(arr(i))) Then
+            IsInArray = True
+            Exit Function
+        End If
+    Next i
+    IsInArray = False
+End Function
+
+Private Function Val2(v As Variant) As Double
+    If IsNumeric(v) Then
+        Val2 = CDbl(v)
+    Else
+        Val2 = 0
+    End If
+End Function
