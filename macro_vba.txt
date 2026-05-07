@@ -1,6 +1,5 @@
 ' =========================================================================
 ' Macro VBA: Top Ofenders Hitlist (Z-Score Definitivo)
-' Copie este código para um Módulo VBA na sua planilha.
 '
 ' Lógica Estatística Z-Score: Limitada de -3 a +3
 ' - CSAT: Média Ponderada
