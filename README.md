@@ -11,7 +11,7 @@ A macro roda diretamente dentro do seu próprio Excel, garantindo máxima segura
 4. Abra o arquivo `macro_vba.txt` que está aqui neste repositório. Copie **todo** o código dentro dele e cole na janela branca do Módulo no Excel.
 5. Feche a janela do VBA.
 6. No Excel, vá na guia `Exibir` > `Macros` > `Exibir Macros` (ou aperte `ALT + F8`).
-7. Selecione a macro `GerarTopOfenders` e clique em **Executar**.
+7. O arquivo possui duas macros. Selecione a que deseja usar (`GerarTopOfenders` ou `Analise_Quartil`) e clique em **Executar**.
 8. O sistema vai perguntar quais meses você deseja analisar. Digite-os separados por vírgula (ex: `Jan/2026, Fev/2026`) e aperte OK.
 9. A aba "Top Ofenders" será gerada automaticamente com as 4 visões solicitadas!
 
@@ -30,3 +30,13 @@ Esses 3 indicadores brutos são transformados em **Notas Z-Score** limitadas de 
 
 A nota final da "Hitlist" é a **soma dessas 3 notas** (podendo variar de -9 a +9).
 O ranking ordena do funcionário mais negativo (maior ofensor operacional) para o mais positivo.
+
+## 📊 Análise de Quartis (Identificação Crônica)
+A segunda macro incluída no código chama-se `Analise_Quartil`. Ela tem um objetivo diferente:
+Em vez de olhar para a média global do período, ela analisa **mês a mês** e identifica os colaboradores que caíram no "Quartil 4" (os 25% piores resultados da operação naquele mês específico).
+
+* **Regras de Negócio aplicadas:**
+  * Colaboradores que tiveram 0 pesquisas ou 0 monitorias em um determinado mês são inteligentemente ignorados do cálculo daquele mês (para não distorcer o ponto de corte do quartil).
+  * O Q4 de CSAT e SQS compreende os 25% com notas *mais baixas*.
+  * O Q4 de ABS compreende os 25% com taxas de faltas *mais altas*.
+  * A tabela lista quantas vezes (meses) cada colaborador da empresa figurou no pior quartil em cada indicador. Ideal para identificar ofensores "crônicos".
