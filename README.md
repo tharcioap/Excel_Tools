@@ -1,31 +1,32 @@
 # Top Ofenders Hitlist Automation
 
-Este repositório contém as soluções automatizadas para gerar a planilha "Top Ofenders" com base em indicadores de CSAT, SQS e ABS.
+Este repositório contém a solução automatizada (Macro VBA) para gerar a planilha "Top Ofenders" com base em indicadores de CSAT, SQS e ABS.
 
-## 🚀 Como Utilizar
+## 🚀 Como Utilizar (VBA)
+A macro roda diretamente dentro do seu próprio Excel, garantindo máxima segurança e compatibilidade.
 
-Você tem duas opções para rodar as automações:
-
-### 1️⃣ Versão VBA (Direto no Excel)
-1. Abra o seu arquivo `TO Hitlist.xlsx`.
-2. Aperte `ALT + F11` para abrir o editor do VBA.
+1. Abra o seu arquivo Excel `TO Hitlist.xlsx` (ou o arquivo onde você cola seus dados).
+2. Aperte `ALT + F11` no teclado para abrir o editor do VBA.
 3. No menu superior, clique em `Inserir` > `Módulo`.
-4. Abra o arquivo `macro_vba.txt` deste projeto, copie todo o código que está lá e cole dentro da janela do Módulo no Excel.
+4. Abra o arquivo `macro_vba.txt` que está aqui neste repositório. Copie **todo** o código dentro dele e cole na janela branca do Módulo no Excel.
 5. Feche a janela do VBA.
-6. No Excel, vá na guia `Exibir` > `Macros` > `Exibir Macros`.
-7. Selecione `GerarTopOfenders` e clique em **Executar**.
-8. Ele vai perguntar quais meses você deseja analisar. É só digitar (ex: `Jan/2026, Fev/2026`) e apertar OK. A aba "Top Ofenders" será gerada automaticamente!
+6. No Excel, vá na guia `Exibir` > `Macros` > `Exibir Macros` (ou aperte `ALT + F8`).
+7. Selecione a macro `GerarTopOfenders` e clique em **Executar**.
+8. O sistema vai perguntar quais meses você deseja analisar. Digite-os separados por vírgula (ex: `Jan/2026, Fev/2026`) e aperte OK.
+9. A aba "Top Ofenders" será gerada automaticamente com as 4 visões solicitadas!
 
-### 2️⃣ Versão Python / Google Colab
-Se preferir a robustez de um script Python (ideal para arquivos gigantes ou para usar sem precisar instalar nada através do navegador), leia as instruções no arquivo:
-👉 `README_Python_e_Colab.md`
+## 🧠 Entendendo a Matemática (Z-Score)
+Para garantir um ranqueamento 100% justo onde indicadores diferentes (porcentagem vs volume) não distorcem a pontuação final, implementamos a padronização estatística (Z-Score).
 
-## 🧠 Como os Cálculos Foram Feitos?
+1. **CSAT (Média Ponderada):** Impacto calculado por `(CSAT Agente - CSAT Global) * Volume`.
+2. **SQS (Média Simples):** Impacto calculado apenas por `(SQS Agente - SQS Global)`.
+3. **ABS (Média Simples vs Meta):** A pontuação baseia-se na distância entre a meta (5%) e as faltas reais: `(5% - ABS Agente)`.
 
-A lógica de projeção segue as regras:
-- **Impacto Real CSAT/SQS:** `( % Agente - % Global do Período ) * Volume Real do Agente`
-- **Projeção ABS (Meta 5%):**
-  - Proporção: `95% / (100% - ABS%)`
-  - *Volume Projetado CSAT:* Multiplicado pela proporção.
-  - *Volume Projetado SQS:* Multiplicado pela proporção (Com Teto de 8 monitorias por mês analisado).
-- Os Rankings são gerados do **Impacto Mais Negativo** (pior) para o mais positivo.
+**O Ranking Final:**
+Esses 3 indicadores brutos são transformados em **Notas Z-Score** limitadas de `-3.0` a `+3.0`.
+- `-3.0`: Ofensor Máximo extremo naquele KPI.
+- `0.0`: O agente está estritamente na média da operação.
+- `+3.0`: O agente é Top Performer absoluto naquele KPI.
+
+A nota final da "Hitlist" é a **soma dessas 3 notas** (podendo variar de -9 a +9).
+O ranking ordena do funcionário mais negativo (maior ofensor operacional) para o mais positivo.

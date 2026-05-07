@@ -1,9 +1,11 @@
 ' =========================================================================
-' Macro VBA: Top Ofenders Hitlist
+' Macro VBA: Top Ofenders Hitlist (Z-Score Definitivo)
 ' Copie este código para um Módulo VBA na sua planilha.
 '
-' Esta macro calcula o impacto real e projetado em CSAT e SQS, considerando
-' as regras de ABS (Meta = 5%).
+' Lógica Estatística Z-Score: Limitada de -3 a +3
+' - CSAT: Média Ponderada
+' - SQS: Média Simples
+' - ABS: Média Simples vs Meta (5%)
 ' =========================================================================
 
 Sub GerarTopOfenders()
@@ -14,7 +16,7 @@ Sub GerarTopOfenders()
     Dim arrMeses As Variant
     Dim i As Long
 
-    ' 1. Configurar Meses (Você pode editar esta string ou pedir via InputBox)
+    ' 1. Configurar Meses (InputBox)
     mesesParaAnalisar = InputBox("Digite os meses que deseja analisar separados por vírgula (ex: Jan/2026, Fev/2026):", "Meses Analisados", "Jan/2026, Fev/2026, Mar/2026, Abr/2026, Mai/2026")
     If mesesParaAnalisar = "" Then Exit Sub
 
@@ -39,11 +41,10 @@ Sub GerarTopOfenders()
     ' Variáveis Globais
     Dim sumAnswered As Double, sumCSATWeighted As Double
     Dim sumSQS As Double, countSQS As Long
-    Dim sumQMS As Double, sumSQSWeighted As Double
     Dim gCSAT As Double, gSQS As Double
 
     sumAnswered = 0: sumCSATWeighted = 0
-    sumQMS = 0: sumSQS = 0: countSQS = 0
+    sumSQS = 0: countSQS = 0
 
     ' ==========================================
     ' LER DADOS DE CSAT/SQS
@@ -65,17 +66,19 @@ Sub GerarTopOfenders()
             pctSQS = Val2(wsCSAT.Cells(i, 5).Value)
             qms = Val2(wsCSAT.Cells(i, 6).Value)
 
-            ' Globais
+            ' Globais CSAT (Ponderada) e SQS (Simples)
             sumAnswered = sumAnswered + answered
             sumCSATWeighted = sumCSATWeighted + (pctCSAT * answered)
 
-            sumQMS = sumQMS + qms
-            sumSQS = sumSQS + pctSQS
-            countSQS = countSQS + 1
+            If qms > 0 Then
+                sumSQS = sumSQS + pctSQS
+                countSQS = countSQS + 1
+            End If
 
             ' Agente
             If Not dictAgent.Exists(agentName) Then
-                dictAgent.Add agentName, Array(0, 0, 0, 0, 0, 0, 0) ' [Ans, AnsWeighted, QMS, SQS_Sum, SQS_Count, sumABS, countABS]
+                ' Array: [0]Ans, [1]AnsWeighted, [2]QMS_Sum(unused in simple), [3]SQS_Sum, [4]SQS_Count, [5]sumABS, [6]countABS
+                dictAgent.Add agentName, Array(0, 0, 0, 0, 0, 0, 0)
             End If
 
             Dim arr As Variant
@@ -83,8 +86,10 @@ Sub GerarTopOfenders()
             arr(0) = arr(0) + answered
             arr(1) = arr(1) + (pctCSAT * answered)
             arr(2) = arr(2) + qms
-            arr(3) = arr(3) + pctSQS
-            arr(4) = arr(4) + 1
+            If qms > 0 Then
+                arr(3) = arr(3) + pctSQS
+                arr(4) = arr(4) + 1
+            End If
             dictAgent(agentName) = arr
         End If
     Next i
@@ -117,6 +122,84 @@ Sub GerarTopOfenders()
     Next i
 
     ' ==========================================
+    ' 1ª PASSAGEM: CALCULAR IMPACTOS BRUTOS
+    ' ==========================================
+    Dim numAgents As Long
+    numAgents = dictAgent.Count
+    If numAgents = 0 Then
+        MsgBox "Nenhum dado encontrado para os meses selecionados.", vbExclamation
+        Exit Sub
+    End If
+
+    ' Arrays para StDev
+    Dim arrCSAT_Imp() As Double: ReDim arrCSAT_Imp(1 To numAgents)
+    Dim arrSQS_Imp() As Double: ReDim arrSQS_Imp(1 To numAgents)
+    Dim arrABS_Imp() As Double: ReDim arrABS_Imp(1 To numAgents)
+
+    Dim sumCSAT_Imp As Double, sumSQS_Imp As Double, sumABS_Imp As Double
+    Dim avgCSAT_Imp As Double, avgSQS_Imp As Double, avgABS_Imp As Double
+    Dim stdevCSAT As Double, stdevSQS As Double, stdevABS As Double
+
+    Dim idx As Long
+    idx = 1
+
+    Dim key As Variant
+    For Each key In dictAgent.Keys
+        Dim d As Variant
+        d = dictAgent(key)
+
+        Dim ag_ans As Double, ag_csat As Double, ag_csat_imp As Double
+        Dim ag_sqs As Double, ag_sqs_imp As Double
+        Dim ag_abs As Double, ag_abs_imp As Double
+
+        ag_ans = d(0)
+        If ag_ans > 0 Then ag_csat = d(1) / ag_ans Else ag_csat = 0
+        If d(4) > 0 Then ag_sqs = d(3) / d(4) Else ag_sqs = 0
+        If d(6) > 0 Then ag_abs = d(5) / d(6) Else ag_abs = 0
+
+        ' Impactos Brutos
+        ag_csat_imp = (ag_csat - gCSAT) * ag_ans
+        ag_sqs_imp = ag_sqs - gSQS ' Simple Delta
+        ag_abs_imp = 0.05 - ag_abs ' Meta(5%) - Real
+
+        arrCSAT_Imp(idx) = ag_csat_imp
+        arrSQS_Imp(idx) = ag_sqs_imp
+        arrABS_Imp(idx) = ag_abs_imp
+
+        sumCSAT_Imp = sumCSAT_Imp + ag_csat_imp
+        sumSQS_Imp = sumSQS_Imp + ag_sqs_imp
+        sumABS_Imp = sumABS_Imp + ag_abs_imp
+
+        idx = idx + 1
+    Next key
+
+    ' Calcular Médias dos Impactos
+    avgCSAT_Imp = sumCSAT_Imp / numAgents
+    avgSQS_Imp = sumSQS_Imp / numAgents
+    avgABS_Imp = sumABS_Imp / numAgents
+
+    ' Calcular Desvios Padrões (Amostral)
+    Dim sqSumCSAT As Double, sqSumSQS As Double, sqSumABS As Double
+    For idx = 1 To numAgents
+        sqSumCSAT = sqSumCSAT + (arrCSAT_Imp(idx) - avgCSAT_Imp) ^ 2
+        sqSumSQS = sqSumSQS + (arrSQS_Imp(idx) - avgSQS_Imp) ^ 2
+        sqSumABS = sqSumABS + (arrABS_Imp(idx) - avgABS_Imp) ^ 2
+    Next idx
+
+    If numAgents > 1 Then
+        stdevCSAT = Sqr(sqSumCSAT / (numAgents - 1))
+        stdevSQS = Sqr(sqSumSQS / (numAgents - 1))
+        stdevABS = Sqr(sqSumABS / (numAgents - 1))
+    Else
+        stdevCSAT = 1: stdevSQS = 1: stdevABS = 1 ' Previne div/0 se só houver 1 agente
+    End If
+
+    ' Evitar Div/0 caso o StDev seja 0 (todos têm exatamente o mesmo resultado)
+    If stdevCSAT = 0 Then stdevCSAT = 1
+    If stdevSQS = 0 Then stdevSQS = 1
+    If stdevABS = 0 Then stdevABS = 1
+
+    ' ==========================================
     ' PREPARAR ABA TOP OFENDERS
     ' ==========================================
     Application.DisplayAlerts = False
@@ -129,111 +212,105 @@ Sub GerarTopOfenders()
     wsTO.Name = "Top Ofenders"
 
     wsTO.Cells(1, 1).Value = "MÉDIAS GLOBAIS DO PERÍODO:"
-    wsTO.Cells(2, 1).Value = "% CSAT Global:"
+    wsTO.Cells(2, 1).Value = "% CSAT Global (Ponderado):"
     wsTO.Cells(2, 2).Value = gCSAT
     wsTO.Cells(2, 2).NumberFormat = "0.00%"
 
-    wsTO.Cells(3, 1).Value = "% SQS Global:"
+    wsTO.Cells(3, 1).Value = "% SQS Global (Simples):"
     wsTO.Cells(3, 2).Value = gSQS
     wsTO.Cells(3, 2).NumberFormat = "0.00%"
 
     wsTO.Cells(4, 1).Value = "Meses Analisados:"
     wsTO.Cells(4, 2).Value = mesesParaAnalisar
 
-    ' Cabeçalhos Gerais (Tabela Base Temporária)
+    ' Tabela Temporária de Dados
     Dim wsTemp As Worksheet
     Set wsTemp = ThisWorkbook.Sheets.Add
     wsTemp.Name = "TempCalc_TO"
-    wsTemp.Cells(1, 1).Resize(1, 15).Value = Array("AGENT", "AVG_CSAT", "ANS", "CSAT_IMP", "AVG_SQS", "QMS", "SQS_IMP", "ABS", "TOT_REAL_IMP", "PROJ_ANS", "PROJ_QMS", "PROJ_CSAT_IMP", "PROJ_SQS_IMP", "TOT_PROJ_IMP", "ABS_VIEW")
+    wsTemp.Cells(1, 1).Resize(1, 11).Value = Array("AGENT", "AVG_CSAT", "ANS", "CSAT_IMP", "AVG_SQS", "SQS_IMP", "ABS", "Z_CSAT", "Z_SQS", "Z_ABS", "Z_TOTAL")
 
     Dim rowIdx As Long
     rowIdx = 2
 
-    Dim numMonths As Long
-    numMonths = UBound(arrMeses) + 1
-    Dim maxQMS As Double
-    maxQMS = 8 * numMonths
-
-    Dim key As Variant
     For Each key In dictAgent.Keys
-        Dim d As Variant
-        d = dictAgent(key)
+        Dim d2 As Variant
+        d2 = dictAgent(key)
 
-        Dim ag_ans As Double, ag_csat As Double, ag_csat_imp As Double
-        Dim ag_qms As Double, ag_sqs As Double, ag_sqs_imp As Double
-        Dim ag_abs As Double, tot_real_imp As Double
-        Dim proj_ans As Double, proj_qms As Double
-        Dim proj_csat_imp As Double, proj_sqs_imp As Double, tot_proj_imp As Double
-        Dim proportion As Double
+        Dim r_ans As Double, r_csat As Double, r_csat_imp As Double
+        Dim r_sqs As Double, r_sqs_imp As Double
+        Dim r_abs As Double, r_abs_imp As Double
 
-        ag_ans = d(0)
-        If ag_ans > 0 Then ag_csat = d(1) / ag_ans Else ag_csat = 0
-        ag_qms = d(2)
-        If d(4) > 0 Then ag_sqs = d(3) / d(4) Else ag_sqs = 0
+        Dim z_csat As Double, z_sqs As Double, z_abs As Double, z_total As Double
 
-        If d(6) > 0 Then ag_abs = d(5) / d(6) Else ag_abs = 0
+        r_ans = d2(0)
+        If r_ans > 0 Then r_csat = d2(1) / r_ans Else r_csat = 0
+        If d2(4) > 0 Then r_sqs = d2(3) / d2(4) Else r_sqs = 0
+        If d2(6) > 0 Then r_abs = d2(5) / d2(6) Else r_abs = 0
 
-        ' 1. Real Impacts
-        ag_csat_imp = (ag_csat - gCSAT) * ag_ans
-        ag_sqs_imp = (ag_sqs - gSQS) * ag_qms
-        tot_real_imp = ag_csat_imp + ag_sqs_imp
+        r_csat_imp = (r_csat - gCSAT) * r_ans
+        r_sqs_imp = r_sqs - gSQS
+        r_abs_imp = 0.05 - r_abs
 
-        ' 2. Projected Impacts
-        If ag_abs >= 1 Then
-            proportion = 0
-        Else
-            proportion = 0.95 / (1# - ag_abs)
-        End If
+        ' Calcular Z-Scores
+        z_csat = (r_csat_imp - avgCSAT_Imp) / stdevCSAT
+        z_sqs = (r_sqs_imp - avgSQS_Imp) / stdevSQS
+        z_abs = (r_abs_imp - avgABS_Imp) / stdevABS
 
-        proj_ans = ag_ans * proportion
-        proj_qms = ag_qms * proportion
-        If proj_qms > maxQMS Then proj_qms = maxQMS
+        ' Travar (Cap) em -3.0 a +3.0
+        If z_csat > 3 Then z_csat = 3
+        If z_csat < -3 Then z_csat = -3
 
-        proj_csat_imp = (ag_csat - gCSAT) * proj_ans
-        proj_sqs_imp = (ag_sqs - gSQS) * proj_qms
-        tot_proj_imp = proj_csat_imp + proj_sqs_imp
+        If z_sqs > 3 Then z_sqs = 3
+        If z_sqs < -3 Then z_sqs = -3
+
+        If z_abs > 3 Then z_abs = 3
+        If z_abs < -3 Then z_abs = -3
+
+        z_total = z_csat + z_sqs + z_abs
 
         ' Gravar no Temp
         wsTemp.Cells(rowIdx, 1).Value = key
-        wsTemp.Cells(rowIdx, 2).Value = ag_csat
-        wsTemp.Cells(rowIdx, 3).Value = ag_ans
-        wsTemp.Cells(rowIdx, 4).Value = ag_csat_imp
-        wsTemp.Cells(rowIdx, 5).Value = ag_sqs
-        wsTemp.Cells(rowIdx, 6).Value = ag_qms
-        wsTemp.Cells(rowIdx, 7).Value = ag_sqs_imp
-        wsTemp.Cells(rowIdx, 8).Value = ag_abs
-        wsTemp.Cells(rowIdx, 9).Value = tot_real_imp
-        wsTemp.Cells(rowIdx, 10).Value = proj_ans
-        wsTemp.Cells(rowIdx, 11).Value = proj_qms
-        wsTemp.Cells(rowIdx, 12).Value = proj_csat_imp
-        wsTemp.Cells(rowIdx, 13).Value = proj_sqs_imp
-        wsTemp.Cells(rowIdx, 14).Value = tot_proj_imp
-        wsTemp.Cells(rowIdx, 15).Value = ag_abs
+        wsTemp.Cells(rowIdx, 2).Value = r_csat
+        wsTemp.Cells(rowIdx, 3).Value = r_ans
+        wsTemp.Cells(rowIdx, 4).Value = r_csat_imp
+        wsTemp.Cells(rowIdx, 5).Value = r_sqs
+        wsTemp.Cells(rowIdx, 6).Value = r_sqs_imp
+        wsTemp.Cells(rowIdx, 7).Value = r_abs
+        wsTemp.Cells(rowIdx, 8).Value = z_csat
+        wsTemp.Cells(rowIdx, 9).Value = z_sqs
+        wsTemp.Cells(rowIdx, 10).Value = z_abs
+        wsTemp.Cells(rowIdx, 11).Value = z_total
 
         rowIdx = rowIdx + 1
     Next key
 
     ' ==========================================
-    ' GERAR OS 7 RANKINGS (Usando Sort VBA)
+    ' GERAR OS 4 RANKINGS FINAIS
     ' ==========================================
     Dim lastT As Long
     lastT = rowIdx - 1
 
-    ' 1. Apenas CSAT
-    CopySorted wsTemp, wsTO, "1. CSAT Impact", Array(1, 2, 3, 4), 4, lastT, 6, 1, xlAscending
-    ' 2. Apenas SQS
-    CopySorted wsTemp, wsTO, "2. SQS Impact", Array(1, 5, 6, 7), 7, lastT, 6, 6, xlAscending
-    ' 3. Apenas ABS
-    CopySorted wsTemp, wsTO, "3. ABS Ranking", Array(1, 8), 8, lastT, 6, 11, xlDescending
+    ' 1. Impacto CSAT (Apenas Dados Brutos)
+    CopySorted wsTemp, wsTO, "1. Impacto CSAT (Bruto)", Array(1, 2, 3, 4), 4, lastT, 6, 1, xlAscending
+    ' 2. Impacto SQS (Apenas Dados Brutos)
+    CopySorted wsTemp, wsTO, "2. Impacto SQS (Bruto)", Array(1, 5, 6), 6, lastT, 6, 6, xlAscending
+    ' 3. Ranking ABS (Apenas Dados Brutos)
+    CopySorted wsTemp, wsTO, "3. Ranking ABS (Bruto)", Array(1, 7), 7, lastT, 6, 10, xlDescending
 
-    ' 4. Real Total (CSAT + SQS)
-    CopySorted wsTemp, wsTO, "4. Real (CSAT+SQS)", Array(1, 4, 7, 9), 9, lastT, 20, 1, xlAscending
-    ' 5. Real Total c/ ABS
-    CopySorted wsTemp, wsTO, "5. Real c/ Visual ABS", Array(1, 9, 8), 9, lastT, 20, 6, xlAscending
-    ' 6. Proj Total
-    CopySorted wsTemp, wsTO, "6. Projetado (Alvo 5%)", Array(1, 12, 13, 14), 14, lastT, 20, 10, xlAscending
-    ' 7. Proj Total c/ ABS
-    CopySorted wsTemp, wsTO, "7. Proj c/ Visual ABS", Array(1, 14, 8), 14, lastT, 20, 15, xlAscending
+    ' 4. HITLIST DEFINITIVA (Z-SCORE TOTAL)
+    CopySorted wsTemp, wsTO, "4. HITLIST Z-SCORE (Soma dos 3 KPIs travados -3 a +3)", Array(1, 8, 9, 10, 11), 11, lastT, 6, 14, xlAscending
+
+    ' Formatar colunas % nas tabelas
+    On Error Resume Next
+    Dim r As Long
+    ' Tab 1 CSAT
+    wsTO.Range(wsTO.Cells(7, 2), wsTO.Cells(6 + lastT, 2)).NumberFormat = "0.00%"
+    ' Tab 2 SQS
+    wsTO.Range(wsTO.Cells(7, 7), wsTO.Cells(6 + lastT, 7)).NumberFormat = "0.00%"
+    ' Tab 3 ABS
+    wsTO.Range(wsTO.Cells(7, 11), wsTO.Cells(6 + lastT, 11)).NumberFormat = "0.00%"
+    ' Tab 4 No formatting needed since Z-Scores format is handled by CopySorted
+    On Error GoTo 0
 
     ' Limpar Temp
     Application.DisplayAlerts = False
@@ -243,7 +320,7 @@ Sub GerarTopOfenders()
     ' Formatação Final
     wsTO.Cells.EntireColumn.AutoFit
     wsTO.Activate
-    MsgBox "Planilha 'Top Ofenders' gerada com sucesso!", vbInformation
+    MsgBox "Planilha 'Top Ofenders' (Z-Score) gerada com sucesso!", vbInformation
 End Sub
 
 ' --- Funções Auxiliares ---
@@ -264,8 +341,8 @@ Private Sub CopySorted(wsSrc As Worksheet, wsDest As Worksheet, title As String,
     For r = 2 To lr
         For c = 0 To UBound(cols)
             wsDest.Cells(destRow + r, destCol + c).Value = wsSrc.Cells(r, cols(c)).Value
-            ' Format as number 2 decimals
-            If IsNumeric(wsDest.Cells(destRow + r, destCol + c).Value) Then
+            ' Format Z-Score & Impacts as Number with 2 decimals
+            If IsNumeric(wsDest.Cells(destRow + r, destCol + c).Value) And cols(c) >= 4 And cols(c) <> 7 Then
                 wsDest.Cells(destRow + r, destCol + c).NumberFormat = "0.00"
             End If
         Next c
