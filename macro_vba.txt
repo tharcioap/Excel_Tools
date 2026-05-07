@@ -1,6 +1,5 @@
 ' =========================================================================
 ' Macro VBA: Top Ofenders Hitlist (Z-Score Definitivo)
-' Copie este código para um Módulo VBA na sua planilha.
 '
 ' Lógica Estatística Z-Score: Limitada de -3 a +3
 ' - CSAT: Média Ponderada
@@ -131,7 +130,7 @@ Sub GerarTopOfenders()
         Exit Sub
     End If
 
-    ' Arrays para StDev
+    ' Arrays para StDev independentes por KPI (ignorando nulos)
     Dim arrCSAT_Imp() As Double: ReDim arrCSAT_Imp(1 To numAgents)
     Dim arrSQS_Imp() As Double: ReDim arrSQS_Imp(1 To numAgents)
     Dim arrABS_Imp() As Double: ReDim arrABS_Imp(1 To numAgents)
@@ -140,8 +139,8 @@ Sub GerarTopOfenders()
     Dim avgCSAT_Imp As Double, avgSQS_Imp As Double, avgABS_Imp As Double
     Dim stdevCSAT As Double, stdevSQS As Double, stdevABS As Double
 
-    Dim idx As Long
-    idx = 1
+    Dim countCSAT As Long, countSQS_Ag As Long, countABS As Long
+    countCSAT = 0: countSQS_Ag = 0: countABS = 0
 
     Dim key As Variant
     For Each key In dictAgent.Keys
@@ -149,52 +148,63 @@ Sub GerarTopOfenders()
         d = dictAgent(key)
 
         Dim ag_ans As Double, ag_csat As Double, ag_csat_imp As Double
-        Dim ag_sqs As Double, ag_sqs_imp As Double
+        Dim ag_qms As Double, ag_sqs As Double, ag_sqs_imp As Double
         Dim ag_abs As Double, ag_abs_imp As Double
 
         ag_ans = d(0)
-        If ag_ans > 0 Then ag_csat = d(1) / ag_ans Else ag_csat = 0
-        If d(4) > 0 Then ag_sqs = d(3) / d(4) Else ag_sqs = 0
-        If d(6) > 0 Then ag_abs = d(5) / d(6) Else ag_abs = 0
+        ag_qms = d(2)
 
-        ' Impactos Brutos
-        ag_csat_imp = (ag_csat - gCSAT) * ag_ans
-        ag_sqs_imp = ag_sqs - gSQS ' Simple Delta
-        ag_abs_imp = 0.05 - ag_abs ' Meta(5%) - Real
+        ' 1. CSAT Impact (Ignorar se Ans = 0)
+        If ag_ans > 0 Then
+            ag_csat = d(1) / ag_ans
+            ag_csat_imp = (ag_csat - gCSAT) * ag_ans
+            countCSAT = countCSAT + 1
+            arrCSAT_Imp(countCSAT) = ag_csat_imp
+            sumCSAT_Imp = sumCSAT_Imp + ag_csat_imp
+        End If
 
-        arrCSAT_Imp(idx) = ag_csat_imp
-        arrSQS_Imp(idx) = ag_sqs_imp
-        arrABS_Imp(idx) = ag_abs_imp
+        ' 2. SQS Impact (Ignorar se QMS = 0)
+        If d(4) > 0 Then ' SQS Count
+            ag_sqs = d(3) / d(4)
+            ag_sqs_imp = ag_sqs - gSQS
+            countSQS_Ag = countSQS_Ag + 1
+            arrSQS_Imp(countSQS_Ag) = ag_sqs_imp
+            sumSQS_Imp = sumSQS_Imp + ag_sqs_imp
+        End If
 
-        sumCSAT_Imp = sumCSAT_Imp + ag_csat_imp
-        sumSQS_Imp = sumSQS_Imp + ag_sqs_imp
-        sumABS_Imp = sumABS_Imp + ag_abs_imp
-
-        idx = idx + 1
+        ' 3. ABS Impact (Ignorar se CountABS = 0)
+        If d(6) > 0 Then
+            ag_abs = d(5) / d(6)
+            ag_abs_imp = 0.05 - ag_abs
+            countABS = countABS + 1
+            arrABS_Imp(countABS) = ag_abs_imp
+            sumABS_Imp = sumABS_Imp + ag_abs_imp
+        End If
     Next key
 
     ' Calcular Médias dos Impactos
-    avgCSAT_Imp = sumCSAT_Imp / numAgents
-    avgSQS_Imp = sumSQS_Imp / numAgents
-    avgABS_Imp = sumABS_Imp / numAgents
+    If countCSAT > 0 Then avgCSAT_Imp = sumCSAT_Imp / countCSAT
+    If countSQS_Ag > 0 Then avgSQS_Imp = sumSQS_Imp / countSQS_Ag
+    If countABS > 0 Then avgABS_Imp = sumABS_Imp / countABS
 
     ' Calcular Desvios Padrões (Amostral)
     Dim sqSumCSAT As Double, sqSumSQS As Double, sqSumABS As Double
-    For idx = 1 To numAgents
+    Dim idx As Long
+    For idx = 1 To countCSAT
         sqSumCSAT = sqSumCSAT + (arrCSAT_Imp(idx) - avgCSAT_Imp) ^ 2
+    Next idx
+    For idx = 1 To countSQS_Ag
         sqSumSQS = sqSumSQS + (arrSQS_Imp(idx) - avgSQS_Imp) ^ 2
+    Next idx
+    For idx = 1 To countABS
         sqSumABS = sqSumABS + (arrABS_Imp(idx) - avgABS_Imp) ^ 2
     Next idx
 
-    If numAgents > 1 Then
-        stdevCSAT = Sqr(sqSumCSAT / (numAgents - 1))
-        stdevSQS = Sqr(sqSumSQS / (numAgents - 1))
-        stdevABS = Sqr(sqSumABS / (numAgents - 1))
-    Else
-        stdevCSAT = 1: stdevSQS = 1: stdevABS = 1 ' Previne div/0 se só houver 1 agente
-    End If
+    If countCSAT > 1 Then stdevCSAT = Sqr(sqSumCSAT / (countCSAT - 1)) Else stdevCSAT = 1
+    If countSQS_Ag > 1 Then stdevSQS = Sqr(sqSumSQS / (countSQS_Ag - 1)) Else stdevSQS = 1
+    If countABS > 1 Then stdevABS = Sqr(sqSumABS / (countABS - 1)) Else stdevABS = 1
 
-    ' Evitar Div/0 caso o StDev seja 0 (todos têm exatamente o mesmo resultado)
+    ' Evitar Div/0 caso o StDev seja 0
     If stdevCSAT = 0 Then stdevCSAT = 1
     If stdevSQS = 0 Then stdevSQS = 1
     If stdevABS = 0 Then stdevABS = 1
@@ -243,19 +253,34 @@ Sub GerarTopOfenders()
         Dim z_csat As Double, z_sqs As Double, z_abs As Double, z_total As Double
 
         r_ans = d2(0)
-        If r_ans > 0 Then r_csat = d2(1) / r_ans Else r_csat = 0
-        If d2(4) > 0 Then r_sqs = d2(3) / d2(4) Else r_sqs = 0
-        If d2(6) > 0 Then r_abs = d2(5) / d2(6) Else r_abs = 0
 
-        r_csat_imp = (r_csat - gCSAT) * r_ans
-        r_sqs_imp = r_sqs - gSQS
-        r_abs_imp = 0.05 - r_abs
+        ' CSAT Z-Score (Zero if no volume)
+        If r_ans > 0 Then
+            r_csat = d2(1) / r_ans
+            r_csat_imp = (r_csat - gCSAT) * r_ans
+            z_csat = (r_csat_imp - avgCSAT_Imp) / stdevCSAT
+        Else
+            r_csat = 0: r_csat_imp = 0: z_csat = 0
+        End If
 
-        ' Calcular Z-Scores
-        z_csat = (r_csat_imp - avgCSAT_Imp) / stdevCSAT
-        z_sqs = (r_sqs_imp - avgSQS_Imp) / stdevSQS
-        ' Z-Score do ABS ancorado na meta, sem subtrair a media da operacao para evitar recriar a distorcao
-        z_abs = r_abs_imp / stdevABS
+        ' SQS Z-Score (Zero if no volume)
+        If d2(4) > 0 Then
+            r_sqs = d2(3) / d2(4)
+            r_sqs_imp = r_sqs - gSQS
+            z_sqs = (r_sqs_imp - avgSQS_Imp) / stdevSQS
+        Else
+            r_sqs = 0: r_sqs_imp = 0: z_sqs = 0
+        End If
+
+        ' ABS Z-Score (Zero if no volume)
+        If d2(6) > 0 Then
+            r_abs = d2(5) / d2(6)
+            r_abs_imp = 0.05 - r_abs
+            ' ABS anchor at 5%
+            z_abs = r_abs_imp / stdevABS
+        Else
+            r_abs = 0: r_abs_imp = 0: z_abs = 0
+        End If
 
         ' Travar (Cap) em -3.0 a +3.0
         If z_csat > 3 Then z_csat = 3
@@ -536,7 +561,7 @@ Sub Analise_Quartil()
         Dim dCSAT As Object
         Set dCSAT = dictMonthCSAT(mKey)
         countVals = dCSAT.Count
-        If countVals >= 4 Then
+        If countVals >= 2 Then
             ReDim arrVals(1 To countVals)
             Dim x As Long: x = 1
             For Each agKey In dCSAT.Keys
@@ -562,7 +587,7 @@ Sub Analise_Quartil()
         Dim dSQS As Object
         Set dSQS = dictMonthSQS(mKey)
         countVals = dSQS.Count
-        If countVals >= 4 Then
+        If countVals >= 2 Then
             ReDim arrVals(1 To countVals)
             x = 1
             For Each agKey In dSQS.Keys
@@ -588,7 +613,7 @@ Sub Analise_Quartil()
         Dim dABS As Object
         Set dABS = dictMonthABS(mKey)
         countVals = dABS.Count
-        If countVals >= 4 Then
+        If countVals >= 2 Then
             ReDim arrVals(1 To countVals)
             x = 1
             For Each agKey In dABS.Keys
