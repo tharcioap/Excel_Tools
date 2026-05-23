@@ -59,7 +59,7 @@ Sub ShowSelectionForm()
 
     Dlg.Labels.Add 20, 20, 100, 15
     Dlg.Labels(1).Caption = "Quarters:"
-    Dlg.Labels(1).Font.Bold = True
+    ' Dlg.Labels(1).Font.Bold = True
 
     For i = 1 To 4
         Set cb = Dlg.CheckBoxes.Add(20, 20 + (i * 20), 80, 15)
@@ -69,7 +69,7 @@ Sub ShowSelectionForm()
 
     Dlg.Labels.Add 150, 20, 100, 15
     Dlg.Labels(2).Caption = "Meses:"
-    Dlg.Labels(2).Font.Bold = True
+    ' Dlg.Labels(2).Font.Bold = True
 
     For i = 1 To 12
         If i <= 6 Then
