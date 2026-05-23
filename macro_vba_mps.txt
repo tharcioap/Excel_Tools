@@ -37,9 +37,9 @@ Sub BotaoAtualizar_Click()
 End Sub
 
 
+
 Sub ShowSelectionForm()
     Application.ScreenUpdating = False
-    Application.DisplayAlerts = False
 
     Dim wsRaw As Worksheet
     Set wsRaw = ThisWorkbook.Sheets("Rawdata SQS")
@@ -52,14 +52,13 @@ Sub ShowSelectionForm()
     Dim dictAvailableQ As Object
     Set dictAvailableQ = CreateObject("Scripting.Dictionary")
 
-    Dim r As Long, wStr As String, wNum As Integer
+    Dim r As Long, wStr As String
     Dim m As Integer, q As Integer, wCheck As Variant
 
     ' Descobrir quais semanas existem na base
     For r = 2 To lastRow
         wStr = Trim(CStr(wsRaw.Cells(r, 1).Value))
         If wStr <> "" Then
-            ' Tentar encontrar a qual mes pertence comparando com GetWeeksForMonth
             For m = 1 To 12
                 Dim colW As Collection
                 Set colW = GetWeeksForMonth(m)
@@ -83,118 +82,82 @@ Sub ShowSelectionForm()
         Exit Sub
     End If
 
-    On Error Resume Next
-    ThisWorkbook.DialogSheets("SelectPeriodDlg").Delete
-    On Error GoTo 0
+    ' --- PASSO 1: Selecionar Quarters ---
+    Dim strQ As String, availableQStr As String
+    Dim k As Variant
+    For Each k In dictAvailableQ.keys
+        availableQStr = availableQStr & k & ", "
+    Next k
+    If Len(availableQStr) > 0 Then availableQStr = Left(availableQStr, Len(availableQStr) - 2)
 
-    Dim Dlg As DialogSheet
-    Set Dlg = ThisWorkbook.DialogSheets.Add
-    Dlg.Name = "SelectPeriodDlg"
-    Dlg.Visible = xlSheetHidden
+    Dim inputQ As String
+    inputQ = InputBox("Quarters disponíveis na sua base: " & availableQStr & vbCrLf & vbCrLf & _
+             "Quais Quarters deseja analisar?" & vbCrLf & _
+             "(Digite os números separados por vírgula. Ex: 1, 2)", "Seleção de Quarters")
 
-    ' Coordenadas dinâmicas
-    Dim baseLeft As Integer, baseTop As Integer
-    baseLeft = 150
-    baseTop = 80
+    If inputQ = "" Then
+        MsgBox "Operação cancelada.", vbInformation
+        Exit Sub
+    End If
 
-    Dlg.DialogFrame.Left = 50
-    Dlg.DialogFrame.Top = 50
-    Dlg.DialogFrame.Height = 280
-    Dlg.DialogFrame.Width = 400
-    Dlg.DialogFrame.Caption = "Selecione os Períodos para Análise"
+    ' Validar e formatar Quarters
+    Dim arrInputQ() As String
+    arrInputQ = Split(inputQ, ",")
+    Dim SelectedQuarters As String
+    Dim i As Integer
+    Dim dictSelectedQ As Object
+    Set dictSelectedQ = CreateObject("Scripting.Dictionary")
 
-    Dim cb As CheckBox
-    Dim i As Integer, rowPos As Integer, colPos As Integer
-    Dim countQ As Integer: countQ = 0
-    Dim countM As Integer: countM = 0
-
-    ' Label Quarters
-    Dlg.Labels.Add baseLeft + 15, baseTop + 10, 100, 15
-    Dlg.Labels(1).Caption = "Quarters:"
-
-    ' Checkboxes Quarters
-    rowPos = baseTop + 30
-    For i = 1 To 4
-        If dictAvailableQ.exists(i) Then
-            Set cb = Dlg.CheckBoxes.Add(baseLeft + 15, rowPos, 80, 15)
-            cb.Name = "chkQ" & i
-            cb.Caption = "Quarter " & i
-            rowPos = rowPos + 18
-            countQ = countQ + 1
+    For i = 0 To UBound(arrInputQ)
+        q = Val(Trim(arrInputQ(i)))
+        If dictAvailableQ.exists(q) Then
+            SelectedQuarters = SelectedQuarters & "Q" & q & ","
+            dictSelectedQ(q) = True
         End If
     Next i
+    If Len(SelectedQuarters) > 0 Then SelectedQuarters = Left(SelectedQuarters, Len(SelectedQuarters) - 1)
 
-    ' Label Meses
-    Dlg.Labels.Add baseLeft + 120, baseTop + 10, 100, 15
-    Dlg.Labels(2).Caption = "Meses:"
+    If dictSelectedQ.Count = 0 Then
+        MsgBox "Nenhum Quarter válido selecionado.", vbExclamation
+        Exit Sub
+    End If
 
-    ' Checkboxes Meses (2 colunas para caber)
-    rowPos = baseTop + 30
-    colPos = baseLeft + 120
-    For i = 1 To 12
-        If dictAvailableM.exists(i) Then
-            Set cb = Dlg.CheckBoxes.Add(colPos, rowPos, 70, 15)
-            cb.Name = "chkM" & i
-            cb.Caption = "Mês " & i
+    ' --- PASSO 2: Selecionar Meses Condicionais ---
+    Dim availableMStr As String
+    For Each k In dictAvailableM.keys
+        ' Só mostra os meses que pertencem aos Quarters selecionados
+        Dim qFromM As Integer
+        qFromM = Int((k - 1) / 3) + 1
+        If dictSelectedQ.exists(qFromM) Then
+            availableMStr = availableMStr & k & ", "
+        End If
+    Next k
+    If Len(availableMStr) > 0 Then availableMStr = Left(availableMStr, Len(availableMStr) - 2)
 
-            countM = countM + 1
-            If countM Mod 6 = 0 Then
-                colPos = colPos + 75
-                rowPos = baseTop + 30
-            Else
-                rowPos = rowPos + 18
+    Dim inputM As String
+    inputM = InputBox("Meses disponíveis para os Quarters selecionados: " & availableMStr & vbCrLf & vbCrLf & _
+             "Quais Meses deseja analisar?" & vbCrLf & _
+             "(Digite os números separados por vírgula. Ex: 4, 5)", "Seleção de Meses")
+
+    ' Se não digitar meses, apenas os quarters serão processados. Mas o usuário pediu "obrigando a selecionar pelo menos 1 quarter", o que já fizemos.
+    Dim SelectedMonths As String
+    If inputM <> "" Then
+        Dim arrInputM() As String
+        arrInputM = Split(inputM, ",")
+        For i = 0 To UBound(arrInputM)
+            m = Val(Trim(arrInputM(i)))
+            Dim qCheck As Integer
+            qCheck = Int((m - 1) / 3) + 1
+            If dictAvailableM.exists(m) And dictSelectedQ.exists(qCheck) Then
+                SelectedMonths = SelectedMonths & "M" & m & ","
             End If
-        End If
-    Next i
-
-    ' Reposicionar Botões nativos do DialogSheet
-    Dlg.Buttons("Button 2").Caption = "Executar"
-    Dlg.Buttons("Button 2").Left = baseLeft + 270
-    Dlg.Buttons("Button 2").Top = baseTop + 150
-
-    Dlg.Buttons("Button 3").Caption = "Cancelar"
-    Dlg.Buttons("Button 3").Left = baseLeft + 270
-    Dlg.Buttons("Button 3").Top = baseTop + 180
+        Next i
+        If Len(SelectedMonths) > 0 Then SelectedMonths = Left(SelectedMonths, Len(SelectedMonths) - 1)
+    End If
 
     Application.ScreenUpdating = True
 
-    If Dlg.Show Then
-        Dim SelectedQuarters As String, SelectedMonths As String
-
-        For i = 1 To 4
-            If dictAvailableQ.exists(i) Then
-                If Dlg.CheckBoxes("chkQ" & i).Value = xlOn Then
-                    SelectedQuarters = SelectedQuarters & "Q" & i & ","
-                End If
-            End If
-        Next i
-
-        For i = 1 To 12
-            If dictAvailableM.exists(i) Then
-                If Dlg.CheckBoxes("chkM" & i).Value = xlOn Then
-                    SelectedMonths = SelectedMonths & "M" & i & ","
-                End If
-            End If
-        Next i
-
-        If Len(SelectedQuarters) > 0 Then SelectedQuarters = Left(SelectedQuarters, Len(SelectedQuarters) - 1)
-        If Len(SelectedMonths) > 0 Then SelectedMonths = Left(SelectedMonths, Len(SelectedMonths) - 1)
-
-        Application.DisplayAlerts = False
-        Dlg.Delete
-        Application.DisplayAlerts = True
-
-        If SelectedQuarters = "" And SelectedMonths = "" Then
-            MsgBox "Nenhum período selecionado. Cancelando.", vbExclamation
-            Exit Sub
-        End If
-
-        Call ProcessData(SelectedQuarters, SelectedMonths)
-    Else
-        Application.DisplayAlerts = False
-        Dlg.Delete
-        Application.DisplayAlerts = True
-    End If
+    Call ProcessData(SelectedQuarters, SelectedMonths)
 End Sub
 
 ' -----------------------------------------------------------------------
@@ -257,10 +220,12 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
         For i = 0 To UBound(arrM)
             m = CInt(Replace(arrM(i), "M", ""))
             If m > maxMonth Then maxMonth = m
+
             Set qWeeks = GetWeeksForMonth(m)
             For Each w In qWeeks
-                If Not dictWeeks.exists(w) Then dictWeeks.Add w, "M" & m
+                If Not dictWeeks.exists(UCase(Trim(w))) Then dictWeeks.Add UCase(Trim(w)), "M" & m
             Next w
+
         Next i
     End If
 
@@ -270,7 +235,7 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
     If maxMonth > 0 Then
         Set qWeeks = GetWeeksForMonth(maxMonth)
         For Each w In qWeeks
-            If Not dictMTDWeeks.exists(w) Then dictMTDWeeks.Add w, True
+            If Not dictMTDWeeks.exists(UCase(Trim(w))) Then dictMTDWeeks.Add UCase(Trim(w)), True
         Next w
     End If
 
@@ -295,7 +260,9 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
         agent = Trim(CStr(rawData(r, 4)))
         sqs = rawData(r, 7)
 
-        If dictWeeks.exists(week) And agent <> "" And Not IsEmpty(sqs) And IsNumeric(sqs) Then
+        If dictWeeks.exists(UCase(week)) And agent <> "" And Not IsEmpty(sqs) And IsNumeric(sqs) Then
+            ' Fix para pt-BR: Se vier como 95.24 em vez de 0.9524, converte para decimal
+            If sqs > 1 Then sqs = sqs / 100
             If Not dictAgentData.exists(agent) Then
                 dictAgentData.Add agent, CreateObject("Scripting.Dictionary")
             End If
@@ -321,7 +288,7 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
                     For m = ((qNumCheck - 1) * 3) + 1 To qNumCheck * 3
                         Dim qwCol As Collection: Set qwCol = GetWeeksForMonth(m)
                         For Each w In qwCol
-                            If w = week Then
+                            If UCase(Trim(w)) = UCase(week) Then
                                 wInQ = True
                                 Exit For
                             End If
@@ -341,7 +308,7 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
             End If
 
             ' Gravar para MTD
-            If dictMTDWeeks.exists(week) Then
+            If dictMTDWeeks.exists(UCase(week)) Then
                 If Not agDict.exists("MTD") Then agDict.Add "MTD", Array(0#, 0)
                 temp = agDict("MTD")
                 temp(0) = temp(0) + sqs
@@ -355,8 +322,10 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
     ' Limpar colunas a partir da C
     wsVar.Range("C1:XFD10").ClearContents
 
-    wsVar.Range("B1").Value = "Select Month FB: " & SelectedMonths
-    wsVar.Range("B2").Value = "Select Quarter FB: " & SelectedQuarters
+
+    wsVar.Range("B1").Value = SelectedMonths
+    wsVar.Range("B2").Value = SelectedQuarters
+
 
     Dim colIndex As Integer
     colIndex = 3 ' Começa na C
@@ -418,14 +387,36 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
     Next i
 
     ' 4. Calcular Quartis, X, CV por Coluna
-    ' Linhas de Destino: Q1=3, Q2=4, Q3=5, Q4=6, X=7, CV=8
-    ' Os labels na Coluna B deveriam ser B3=Q1, B4=Q2 etc.
-    wsVar.Range("B3").Value = "Q1"
-    wsVar.Range("B4").Value = "Q2"
-    wsVar.Range("B5").Value = "Q3"
-    wsVar.Range("B6").Value = "Q4"
-    wsVar.Range("B7").Value = "X"
-    wsVar.Range("B8").Value = "CV"
+    ' Linhas de Destino: Q1=4, Q2=5, Q3=6, Q4=7, X=8, CV=9 (Wait, looking at la2.png)
+    ' In la2.png:
+    ' Row 1: Select Month FB
+    ' Row 2: Select Quarter FB
+    ' Row 3: Quartile | Q1 | QTD Q2
+    ' Row 4: Q1 | Q2 | 88%
+    ' It shifted down! My code had labels at 3,4,5,6.
+    ' Let's look at la2.png carefully.
+    ' A3: "Quartile", B3: "Q1", C3: "95,24%"
+    ' A4: "Q1", B4: "Q2", C4: "88,89%"
+    ' A5: "Q2", B5: "Q3"...
+    ' Why did my code write "Q1" to B3??
+    ' Ah, the user's template has a header in Row 3! "Quartile".
+    ' But my data writing starts at row 3! `wsVar.Cells(4, cCol).Value = q1Avg`.
+    ' If row 3 is Q1 data, but the user's A3 is "Quartile", then my data is shifted UP by one row compared to the user's template!
+    ' The user expects:
+    ' Row 2: Headers (QTD, MTD, W...)
+    ' Row 3: Q1
+    ' Row 4: Q2
+    ' Row 5: Q3
+    ' Row 6: Q4
+    ' Row 7: X
+    ' Row 8: CV
+    ' Wait! In the image:
+    ' A3 = "Quartile". My code didn't write "Quartile".
+    ' Let's write the values starting at colIndex = 2 (B) for headers, and start data at column B if we want, OR start data at C and write headers to B2, C2...
+    ' To be safe, I'll let B1 and B2 be the selection strings.
+    ' Let's write Data Headers starting at column C.
+    ' Data will go into Rows 4 to 9.
+    ' Let's adjust row mapping: Q1=4, Q2=5, Q3=6, Q4=7, X=8, CV=9.
 
     ' Guardar Médias do Q4 das Weeks para usar na aba Focus Group
     Dim dictQ4Weeks As Object
@@ -524,12 +515,12 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
             ' Escrever na Planilha Var SQS
             Dim cCol As Integer
             cCol = colIndex + i
-            If s1 > 0 Then wsVar.Cells(3, cCol).Value = q1Avg
-            If s2 > 0 Then wsVar.Cells(4, cCol).Value = q2Avg
-            If s3 > 0 Then wsVar.Cells(5, cCol).Value = q3Avg
-            If s4 > 0 Then wsVar.Cells(6, cCol).Value = q4Avg
-            wsVar.Cells(7, cCol).Value = xAvg
-            wsVar.Cells(8, cCol).Value = cvVal
+            If s1 > 0 Then wsVar.Cells(4, cCol).Value = q1Avg
+            If s2 > 0 Then wsVar.Cells(5, cCol).Value = q2Avg
+            If s3 > 0 Then wsVar.Cells(6, cCol).Value = q3Avg
+            If s4 > 0 Then wsVar.Cells(7, cCol).Value = q4Avg
+            wsVar.Cells(8, cCol).Value = xAvg
+            wsVar.Cells(9, cCol).Value = cvVal
 
             ' Se for uma Week, guardar Q4Avg
             If Left(periodKey, 1) = "W" Then
@@ -539,8 +530,8 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
     Next i
 
     ' Formatar Manage Variation SQS
-    wsVar.Range(wsVar.Cells(3, 3), wsVar.Cells(7, colIndex + hCount - 1)).NumberFormat = "0.00%"
-    wsVar.Range(wsVar.Cells(8, 3), wsVar.Cells(8, colIndex + hCount - 1)).NumberFormat = "0.00"
+    wsVar.Range(wsVar.Cells(4, 3), wsVar.Cells(8, colIndex + hCount - 1)).NumberFormat = "0.00%"
+    wsVar.Range(wsVar.Cells(9, 3), wsVar.Cells(9, colIndex + hCount - 1)).NumberFormat = "0.00"
 
     ' 5. Focus Group
     wsFocus.Cells.ClearContents
