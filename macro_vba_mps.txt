@@ -36,69 +36,144 @@ Sub BotaoAtualizar_Click()
     Call ShowSelectionForm
 End Sub
 
-Sub ShowSelectionForm()
-    Dim Dlg As DialogSheet
-    Dim cb As CheckBox
-    Dim i As Integer, r As Integer, c As Integer
-    Dim SelectedMonths As String
-    Dim SelectedQuarters As String
 
+Sub ShowSelectionForm()
     Application.ScreenUpdating = False
     Application.DisplayAlerts = False
+
+    Dim wsRaw As Worksheet
+    Set wsRaw = ThisWorkbook.Sheets("Rawdata SQS")
+
+    Dim lastRow As Long
+    lastRow = wsRaw.Cells(wsRaw.Rows.Count, "A").End(xlUp).Row
+
+    Dim dictAvailableM As Object
+    Set dictAvailableM = CreateObject("Scripting.Dictionary")
+    Dim dictAvailableQ As Object
+    Set dictAvailableQ = CreateObject("Scripting.Dictionary")
+
+    Dim r As Long, wStr As String, wNum As Integer
+    Dim m As Integer, q As Integer, wCheck As Variant
+
+    ' Descobrir quais semanas existem na base
+    For r = 2 To lastRow
+        wStr = Trim(CStr(wsRaw.Cells(r, 1).Value))
+        If wStr <> "" Then
+            ' Tentar encontrar a qual mes pertence comparando com GetWeeksForMonth
+            For m = 1 To 12
+                Dim colW As Collection
+                Set colW = GetWeeksForMonth(m)
+                Dim foundM As Boolean: foundM = False
+                For Each wCheck In colW
+                    If UCase(Trim(wCheck)) = UCase(wStr) Then
+                        dictAvailableM(m) = True
+                        q = Int((m - 1) / 3) + 1
+                        dictAvailableQ(q) = True
+                        foundM = True
+                        Exit For
+                    End If
+                Next wCheck
+                If foundM Then Exit For
+            Next m
+        End If
+    Next r
+
+    If dictAvailableM.Count = 0 Then
+        MsgBox "Nenhum dado válido de semanas encontrado na Rawdata.", vbExclamation
+        Exit Sub
+    End If
+
     On Error Resume Next
     ThisWorkbook.DialogSheets("SelectPeriodDlg").Delete
     On Error GoTo 0
 
+    Dim Dlg As DialogSheet
     Set Dlg = ThisWorkbook.DialogSheets.Add
     Dlg.Name = "SelectPeriodDlg"
     Dlg.Visible = xlSheetHidden
 
-    Dlg.DialogFrame.Height = 250
-    Dlg.DialogFrame.Width = 350
-    Dlg.DialogFrame.Caption = "Selecione os Períodos para Análise SQS"
+    ' Coordenadas dinâmicas
+    Dim baseLeft As Integer, baseTop As Integer
+    baseLeft = 150
+    baseTop = 80
 
-    Dlg.Labels.Add 20, 20, 100, 15
+    Dlg.DialogFrame.Left = 50
+    Dlg.DialogFrame.Top = 50
+    Dlg.DialogFrame.Height = 280
+    Dlg.DialogFrame.Width = 400
+    Dlg.DialogFrame.Caption = "Selecione os Períodos para Análise"
+
+    Dim cb As CheckBox
+    Dim i As Integer, rowPos As Integer, colPos As Integer
+    Dim countQ As Integer: countQ = 0
+    Dim countM As Integer: countM = 0
+
+    ' Label Quarters
+    Dlg.Labels.Add baseLeft + 15, baseTop + 10, 100, 15
     Dlg.Labels(1).Caption = "Quarters:"
-    ' Dlg.Labels(1).Font.Bold = True
 
+    ' Checkboxes Quarters
+    rowPos = baseTop + 30
     For i = 1 To 4
-        Set cb = Dlg.CheckBoxes.Add(20, 20 + (i * 20), 80, 15)
-        cb.Name = "chkQ" & i
-        cb.Caption = "Quarter " & i
-    Next i
-
-    Dlg.Labels.Add 150, 20, 100, 15
-    Dlg.Labels(2).Caption = "Meses:"
-    ' Dlg.Labels(2).Font.Bold = True
-
-    For i = 1 To 12
-        If i <= 6 Then
-            r = 20 + (i * 20)
-            c = 150
-        Else
-            r = 20 + ((i - 6) * 20)
-            c = 240
+        If dictAvailableQ.exists(i) Then
+            Set cb = Dlg.CheckBoxes.Add(baseLeft + 15, rowPos, 80, 15)
+            cb.Name = "chkQ" & i
+            cb.Caption = "Quarter " & i
+            rowPos = rowPos + 18
+            countQ = countQ + 1
         End If
-        Set cb = Dlg.CheckBoxes.Add(c, r, 80, 15)
-        cb.Name = "chkM" & i
-        cb.Caption = "Mês " & i
     Next i
 
+    ' Label Meses
+    Dlg.Labels.Add baseLeft + 120, baseTop + 10, 100, 15
+    Dlg.Labels(2).Caption = "Meses:"
+
+    ' Checkboxes Meses (2 colunas para caber)
+    rowPos = baseTop + 30
+    colPos = baseLeft + 120
+    For i = 1 To 12
+        If dictAvailableM.exists(i) Then
+            Set cb = Dlg.CheckBoxes.Add(colPos, rowPos, 70, 15)
+            cb.Name = "chkM" & i
+            cb.Caption = "Mês " & i
+
+            countM = countM + 1
+            If countM Mod 6 = 0 Then
+                colPos = colPos + 75
+                rowPos = baseTop + 30
+            Else
+                rowPos = rowPos + 18
+            End If
+        End If
+    Next i
+
+    ' Reposicionar Botões nativos do DialogSheet
     Dlg.Buttons("Button 2").Caption = "Executar"
+    Dlg.Buttons("Button 2").Left = baseLeft + 270
+    Dlg.Buttons("Button 2").Top = baseTop + 150
+
     Dlg.Buttons("Button 3").Caption = "Cancelar"
+    Dlg.Buttons("Button 3").Left = baseLeft + 270
+    Dlg.Buttons("Button 3").Top = baseTop + 180
 
     Application.ScreenUpdating = True
 
     If Dlg.Show Then
+        Dim SelectedQuarters As String, SelectedMonths As String
+
         For i = 1 To 4
-            If Dlg.CheckBoxes("chkQ" & i).Value = xlOn Then
-                SelectedQuarters = SelectedQuarters & "Q" & i & ","
+            If dictAvailableQ.exists(i) Then
+                If Dlg.CheckBoxes("chkQ" & i).Value = xlOn Then
+                    SelectedQuarters = SelectedQuarters & "Q" & i & ","
+                End If
             End If
         Next i
 
         For i = 1 To 12
-            If Dlg.CheckBoxes("chkM" & i).Value = xlOn Then
-                SelectedMonths = SelectedMonths & "M" & i & ","
+            If dictAvailableM.exists(i) Then
+                If Dlg.CheckBoxes("chkM" & i).Value = xlOn Then
+                    SelectedMonths = SelectedMonths & "M" & i & ","
+                End If
             End If
         Next i
 
@@ -416,7 +491,9 @@ Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
                 If numAgents = 3 Then s2 = 1: s3 = 1
             End If
 
+
             Dim q1Sum As Double, q2Sum As Double, q3Sum As Double, q4Sum As Double
+            q1Sum = 0: q2Sum = 0: q3Sum = 0: q4Sum = 0
             Dim idx As Integer: idx = 0
 
             For x = 1 To s1: q1Sum = q1Sum + arrAvgs(idx): idx = idx + 1: Next x
