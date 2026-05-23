@@ -54,7 +54,7 @@ Em vez de olhar para a média global do período, ela analisa **mês a mês** e 
 7. Escolha a macro chamada `BotaoAtualizar_Click` e clique em OK.
 
 **Pronto!**
-Sempre que você clicar em "Atualizar", um painel visual (com checkboxes) abrirá em duas etapas. Primeiro, você seleciona os Quarters desejados. Ao avançar, um segundo painel exibirá as opções de Meses atreladas e disponíveis apenas para os Quarters que você escolheu. Nele, você pode selecionar Q1 a Q4 e/ou M1 a M12. Quando você clicar em "Executar", a macro fará:
+Sempre que você clicar em "Atualizar", uma janela limpa e sequencial pedirá primeiro os Quarters que você deseja analisar, e em seguida, apenas os Meses disponíveis para aqueles Quarters. Nele, você pode selecionar Q1 a Q4 e/ou M1 a M12. Quando você clicar em "Executar", a macro fará:
 - **Manage Variation SQS:** Irá extrair e calcular dinamicamente (MTD, QTDs, Weeks), agrupando a média de SQS e ordenando Top 25% (Q1), próximos (Q2), etc. O Quartil 4 representa os 25% com notas *mais baixas*.
 - **Focus Group:** Vasculha e identifica somente os agentes que ficaram *abaixo da média do Q4* da semana específica e realiza a contagem retroativa `Weeks Below Q4 avg`.
 
