@@ -40,3 +40,26 @@ Em vez de olhar para a média global do período, ela analisa **mês a mês** e 
   * O Q4 de CSAT e SQS compreende os 25% com notas *mais baixas*.
   * O Q4 de ABS compreende os 25% com taxas de faltas *mais altas*.
   * A tabela lista quantas vezes (meses) cada colaborador da empresa figurou no pior quartil em cada indicador. Ideal para identificar ofensores "crônicos".
+
+---
+# OKR MPS - SQS Variation & Focus Group
+
+## 🚀 Como Utilizar (VBA) para `okr mps.xlsx`
+1. Abra o arquivo Excel `okr mps.xlsx`.
+2. Aperte `ALT + F11` no teclado para abrir o editor do VBA.
+3. No menu superior, clique em `Inserir` > `Módulo`.
+4. Abra o arquivo `macro_vba_mps.txt` deste repositório e **copie todo o código**.
+5. Cole na janela em branco do módulo no Excel e feche o VBA.
+6. Na aba "Rawdata SQS", clique com o botão direito no botão "Atualizar" e selecione `Atribuir Macro`.
+7. Escolha a macro chamada `BotaoAtualizar_Click` e clique em OK.
+
+**Pronto!**
+Sempre que você clicar em "Atualizar", um painel visual (com checkboxes) abrirá em duas etapas. Primeiro, você seleciona os Quarters desejados. Ao avançar, um segundo painel exibirá as opções de Meses atreladas e disponíveis apenas para os Quarters que você escolheu. Nele, você pode selecionar Q1 a Q4 e/ou M1 a M12. Quando você clicar em "Executar", a macro fará:
+- **Manage Variation SQS:** Irá extrair e calcular dinamicamente (MTD, QTDs, Weeks), agrupando a média de SQS e ordenando Top 25% (Q1), próximos (Q2), etc. O Quartil 4 representa os 25% com notas *mais baixas*.
+- **Focus Group:** Vasculha e identifica somente os agentes que ficaram *abaixo da média do Q4* da semana específica e realiza a contagem retroativa `Weeks Below Q4 avg`.
+
+**Observação Matemática (SQS CV):**
+O "CV" (Coeficiente de Variação) calcula a Média Geral da Operação (`X`) dividida pelo **Desvio Padrão Populacional** das notas de todos os agentes do período analisado, gerando uma visão perfeitamente limpa sem distorções de amostra. Agentes zerados ou sem nota são sempre desconsiderados.
+
+**Importante sobre MTD:**
+Ao selecionar apenas Quarters no painel (sem selecionar um Mês específico), a macro assumirá automaticamente o **último mês do maior Quarter selecionado** para calcular e gerar a coluna do MTD (ex: ao selecionar Quarter 2, o MTD será calculado usando os dados do Mês 6).
