@@ -1,0 +1,612 @@
+Option Explicit
+
+' =======================================================================
+' AUTOMATIZAÇÃO OKR MPS - SQS Variation & Focus Group
+' Desenvolvido para Excel
+' =======================================================================
+
+' Estrutura de Semanas 4-4-5
+Function GetWeeksForMonth(m As Integer) As Collection
+    Dim col As New Collection
+    Dim q As Integer, monthInQ As Integer, startWeek As Integer
+    Dim i As Integer, numWeeks As Integer
+
+    q = Int((m - 1) / 3)
+    monthInQ = (m - 1) Mod 3
+    startWeek = (q * 13) + 1
+
+    If monthInQ = 0 Then
+        numWeeks = 4
+    ElseIf monthInQ = 1 Then
+        numWeeks = 4
+        startWeek = startWeek + 4
+    Else
+        numWeeks = 5
+        startWeek = startWeek + 8
+    End If
+
+    For i = 0 To numWeeks - 1
+        col.Add "W" & (startWeek + i) & "/26"
+    Next i
+
+    Set GetWeeksForMonth = col
+End Function
+
+Sub BotaoAtualizar_Click()
+    Call ShowSelectionForm
+End Sub
+
+
+
+Sub ShowSelectionForm()
+    Application.ScreenUpdating = False
+
+    Dim wsRaw As Worksheet
+    Set wsRaw = ThisWorkbook.Sheets("Rawdata SQS")
+
+    Dim lastRow As Long
+    lastRow = wsRaw.Cells(wsRaw.Rows.Count, "A").End(xlUp).Row
+
+    Dim dictAvailableM As Object
+    Set dictAvailableM = CreateObject("Scripting.Dictionary")
+    Dim dictAvailableQ As Object
+    Set dictAvailableQ = CreateObject("Scripting.Dictionary")
+
+    Dim r As Long, wStr As String
+    Dim m As Integer, q As Integer, wCheck As Variant
+
+    ' Descobrir quais semanas existem na base
+    For r = 2 To lastRow
+        wStr = Trim(CStr(wsRaw.Cells(r, 1).Value))
+        If wStr <> "" Then
+            For m = 1 To 12
+                Dim colW As Collection
+                Set colW = GetWeeksForMonth(m)
+                Dim foundM As Boolean: foundM = False
+                For Each wCheck In colW
+                    If UCase(Trim(wCheck)) = UCase(wStr) Then
+                        dictAvailableM(m) = True
+                        q = Int((m - 1) / 3) + 1
+                        dictAvailableQ(q) = True
+                        foundM = True
+                        Exit For
+                    End If
+                Next wCheck
+                If foundM Then Exit For
+            Next m
+        End If
+
+    If dictAvailableM.Count = 0 Then
+        MsgBox "Nenhum dado válido de semanas encontrado na Rawdata.", vbExclamation
+        Exit Sub
+    End If
+
+    ' --- PASSO 1: Selecionar Quarters ---
+    Dim strQ As String, availableQStr As String
+    Dim k As Variant
+    For Each k In dictAvailableQ.keys
+        availableQStr = availableQStr & "Quarter " & k & ", "
+    Next k
+    If Len(availableQStr) > 0 Then availableQStr = Left(availableQStr, Len(availableQStr) - 2)
+
+    Dim inputQ As String
+    inputQ = InputBox("Sua base contém dados para: " & availableQStr & vbCrLf & vbCrLf & _
+             "Quais Quarters deseja analisar?" & vbCrLf & _
+             "(Digite os números separados por vírgula. Ex: 1, 2)", "Seleção de Quarters")
+
+    If inputQ = "" Then
+        MsgBox "Operação cancelada.", vbInformation
+        Exit Sub
+    End If
+
+    ' Validar e formatar Quarters
+    Dim arrInputQ() As String
+    arrInputQ = Split(inputQ, ",")
+    Dim SelectedQuarters As String
+    Dim i As Integer
+    Dim dictSelectedQ As Object
+    Set dictSelectedQ = CreateObject("Scripting.Dictionary")
+
+    For i = 0 To UBound(arrInputQ)
+        q = Val(Trim(arrInputQ(i)))
+        If q >= 1 And q <= 4 Then
+            SelectedQuarters = SelectedQuarters & "Q" & q & ","
+            dictSelectedQ(q) = True
+        End If
+    Next i
+    If Len(SelectedQuarters) > 0 Then SelectedQuarters = Left(SelectedQuarters, Len(SelectedQuarters) - 1)
+
+    If dictSelectedQ.Count = 0 Then
+        MsgBox "Nenhum Quarter válido selecionado.", vbExclamation
+        Exit Sub
+    End If
+
+    ' --- PASSO 2: Selecionar Meses Condicionais ---
+    Dim availableMStr As String
+    For Each k In dictAvailableM.keys
+        ' Só mostra os meses que pertencem aos Quarters selecionados
+        Dim qFromM As Integer
+        qFromM = Int((k - 1) / 3) + 1
+        If dictSelectedQ.exists(qFromM) Then
+            availableMStr = availableMStr & k & ", "
+        End If
+    Next k
+    If Len(availableMStr) > 0 Then availableMStr = Left(availableMStr, Len(availableMStr) - 2)
+
+    Dim inputM As String
+    inputM = InputBox("Meses disponíveis para os Quarters selecionados: " & availableMStr & vbCrLf & vbCrLf & _
+             "Quais Meses deseja analisar?" & vbCrLf & _
+             "(Digite os números separados por vírgula. Ex: 4, 5)", "Seleção de Meses")
+
+    Dim SelectedMonths As String
+    If inputM <> "" Then
+        Dim arrInputM() As String
+        arrInputM = Split(inputM, ",")
+        For i = 0 To UBound(arrInputM)
+            m = Val(Trim(arrInputM(i)))
+            Dim qCheck As Integer
+            qCheck = Int((m - 1) / 3) + 1
+            If dictAvailableM.exists(m) And dictSelectedQ.exists(qCheck) Then
+                SelectedMonths = SelectedMonths & "M" & m & ","
+            End If
+        Next i
+        If Len(SelectedMonths) > 0 Then SelectedMonths = Left(SelectedMonths, Len(SelectedMonths) - 1)
+    End If
+
+    Application.ScreenUpdating = True
+
+    Call ProcessData(SelectedQuarters, SelectedMonths)
+End Sub
+
+' -----------------------------------------------------------------------
+' Função auxiliar para verificar se uma collection contém uma key (Week)
+' -----------------------------------------------------------------------
+Function CollectionContains(col As Collection, key As String) As Boolean
+    Dim obj As Variant
+    On Error GoTo NotFound
+    obj = col.Item(key)
+    CollectionContains = True
+    Exit Function
+NotFound:
+    CollectionContains = False
+End Function
+
+' -----------------------------------------------------------------------
+' O Motor Principal
+' -----------------------------------------------------------------------
+Sub ProcessData(SelectedQuarters As String, SelectedMonths As String)
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+
+    Dim wsRaw As Worksheet, wsVar As Worksheet, wsFocus As Worksheet
+    Set wsRaw = ThisWorkbook.Sheets("Rawdata SQS")
+    Set wsVar = ThisWorkbook.Sheets("Manage Variation SQS")
+    Set wsFocus = ThisWorkbook.Sheets("Focus Group")
+
+    ' 1. Determinar Weeks selecionadas
+    Dim dictWeeks As Object
+    Set dictWeeks = CreateObject("Scripting.Dictionary")
+
+    Dim dictPrintWeeks As Object
+    Set dictPrintWeeks = CreateObject("Scripting.Dictionary")
+
+    Dim arrQ() As String, arrM() As String
+    Dim i As Integer, j As Integer, m As Integer, w As Variant
+    Dim maxMonth As Integer: maxMonth = 0
+    Dim qWeeks As Collection
+
+    ' Weeks for QTD Calculation (All weeks in selected quarters)
+    If SelectedQuarters <> "" Then
+        arrQ = Split(SelectedQuarters, ",")
+        For i = 0 To UBound(arrQ)
+            Dim qNum As Integer
+            qNum = CInt(Replace(arrQ(i), "Q", ""))
+
+            Dim qLastMonth As Integer
+            qLastMonth = qNum * 3
+
+            For m = ((qNum - 1) * 3) + 1 To qNum * 3
+                Set qWeeks = GetWeeksForMonth(m)
+                For Each w In qWeeks
+                    If Not dictWeeks.exists(UCase(Trim(w))) Then dictWeeks.Add UCase(Trim(w)), "Q" & qNum
+                Next w
+            Next m
+        Next i
+    End If
+
+    ' Weeks for Individual Columns and MTD target (Only selected months)
+    If SelectedMonths <> "" Then
+        arrM = Split(SelectedMonths, ",")
+        For i = 0 To UBound(arrM)
+            m = CInt(Replace(arrM(i), "M", ""))
+            If m > maxMonth Then maxMonth = m
+            Set qWeeks = GetWeeksForMonth(m)
+            For Each w In qWeeks
+                If Not dictWeeks.exists(UCase(Trim(w))) Then dictWeeks.Add UCase(Trim(w)), "M" & m
+                If Not dictPrintWeeks.exists(UCase(Trim(w))) Then dictPrintWeeks.Add UCase(Trim(w)), True
+            Next w
+        Next i
+    Else
+        ' Se nenhum mês for selecionado explicitamente, printa todas as weeks dos quarters
+        For Each w In dictWeeks.keys
+            dictPrintWeeks.Add UCase(Trim(w)), True
+        Next w
+        If SelectedQuarters <> "" Then
+            ' Se não escolheu mês, maxMonth vira o último mês do último Quarter selecionado
+            Dim lastQ As Integer
+            lastQ = CInt(Replace(arrQ(UBound(arrQ)), "Q", ""))
+            maxMonth = lastQ * 3
+        End If
+    End If
+
+
+    ' Descobrir Weeks do MTD (último mês)
+    Dim dictMTDWeeks As Object
+    Set dictMTDWeeks = CreateObject("Scripting.Dictionary")
+    If maxMonth > 0 Then
+        Set qWeeks = GetWeeksForMonth(maxMonth)
+        For Each w In qWeeks
+            If Not dictMTDWeeks.exists(UCase(Trim(w))) Then dictMTDWeeks.Add UCase(Trim(w)), True
+        Next w
+    End If
+
+    ' 2. Ler Rawdata
+    Dim lastRowRaw As Long
+    lastRowRaw = wsRaw.Cells(wsRaw.Rows.Count, "A").End(xlUp).Row
+    Dim rawData As Variant
+    rawData = wsRaw.Range("A2:G" & lastRowRaw).Value
+
+    ' Dicionários para consolidar dados: dict(Agent) -> dict(Period) -> Array(Sum, Count)
+    Dim dictAgentData As Object
+    Set dictAgentData = CreateObject("Scripting.Dictionary")
+
+    Dim r As Long, agent As String, week As String, sqs As Variant
+    Dim qStr As String
+
+    For r = 1 To UBound(rawData, 1)
+        week = Trim(CStr(rawData(r, 1)))
+        agent = Trim(CStr(rawData(r, 4)))
+        sqs = rawData(r, 7)
+
+        If dictWeeks.exists(UCase(week)) And agent <> "" And Not IsEmpty(sqs) And IsNumeric(sqs) Then
+            ' Fix para pt-BR: Se vier como 95.24 em vez de 0.9524, converte para decimal
+            If sqs > 1 Then sqs = sqs / 100
+
+            If Not dictAgentData.exists(agent) Then
+                dictAgentData.Add agent, CreateObject("Scripting.Dictionary")
+            End If
+
+            Dim agDict As Object
+            Set agDict = dictAgentData(agent)
+
+            ' Gravar para a Week
+            If Not agDict.exists(UCase(week)) Then agDict.Add UCase(week), Array(0#, 0)
+            Dim temp As Variant
+            temp = agDict(UCase(week))
+            temp(0) = temp(0) + sqs
+            temp(1) = temp(1) + 1
+            agDict(UCase(week)) = temp
+
+            ' Gravar para QTD
+            If SelectedQuarters <> "" Then
+                For i = 0 To UBound(arrQ)
+                    qStr = arrQ(i)
+                    Dim wInQ As Boolean: wInQ = False
+                    Dim qNumCheck As Integer: qNumCheck = CInt(Replace(qStr, "Q", ""))
+                    For m = ((qNumCheck - 1) * 3) + 1 To qNumCheck * 3
+                        Set qWeeks = GetWeeksForMonth(m)
+                        For Each w In qWeeks
+                            If UCase(Trim(w)) = UCase(week) Then
+                                wInQ = True
+                                Exit For
+                            End If
+                        Next w
+                        If wInQ Then Exit For
+                    Next m
+
+                    If wInQ Then
+                        Dim qKey As String: qKey = "QTD_" & qStr
+                        If Not agDict.exists(qKey) Then agDict.Add qKey, Array(0#, 0)
+                        temp = agDict(qKey)
+                        temp(0) = temp(0) + sqs
+                        temp(1) = temp(1) + 1
+                        agDict(qKey) = temp
+                    End If
+                Next i
+            End If
+
+            ' Gravar para MTD
+
+            If dictMTDWeeks.exists(UCase(week)) Then
+                If Not agDict.exists("MTD") Then agDict.Add "MTD", Array(0#, 0)
+                temp = agDict("MTD")
+                temp(0) = temp(0) + sqs
+                temp(1) = temp(1) + 1
+                agDict("MTD") = temp
+            End If
+
+        End If
+    Next r
+
+    ' 3. Estruturar Colunas Dinâmicas na Manage Variation SQS
+    ' LIMPEZA TOTAL DA ABA PARA EVITAR LIXO VISUAL
+    wsVar.Cells.Clear
+
+    wsVar.Range("A1").Value = "Select Month FB:"
+    wsVar.Range("B1").Value = SelectedMonths
+    wsVar.Range("A2").Value = "Select Quarter FB:"
+    wsVar.Range("B2").Value = SelectedQuarters
+
+    ' Escrever os Labels Fixos na Coluna A
+    wsVar.Range("A3").Value = "Quartile"
+    wsVar.Range("A4").Value = "Q1"
+    wsVar.Range("A5").Value = "Q2"
+    wsVar.Range("A6").Value = "Q3"
+    wsVar.Range("A7").Value = "Q4"
+    wsVar.Range("A8").Value = "X"
+    wsVar.Range("A9").Value = "CV"
+
+    Dim colIndex As Integer
+    colIndex = 3 ' Os dados (QTD, MTD, Semanas) vão começar na Coluna C (3)
+
+    ' Array de cabeçalhos
+    Dim arrHeaders() As String
+    ReDim arrHeaders(0 To 0)
+    Dim hCount As Integer: hCount = 0
+
+    ' Adicionar QTDs
+    If SelectedQuarters <> "" Then
+        For i = 0 To UBound(arrQ)
+            ReDim Preserve arrHeaders(0 To hCount)
+            arrHeaders(hCount) = "QTD_" & arrQ(i)
+            hCount = hCount + 1
+        Next i
+    End If
+
+    ' Adicionar MTD
+    If maxMonth > 0 Then
+        ReDim Preserve arrHeaders(0 To hCount)
+        arrHeaders(hCount) = "MTD"
+        hCount = hCount + 1
+    End If
+
+    ' Adicionar Weeks ordenadas
+    Dim k As Variant
+    Dim arrW() As String, wCount As Integer: wCount = 0
+    For Each k In dictPrintWeeks.keys
+        ReDim Preserve arrW(0 To wCount)
+        arrW(wCount) = k
+        wCount = wCount + 1
+    Next k
+
+    ' Sort simples em arrW (W14/26, W15/26 etc)
+    Dim x As Integer, y As Integer, tempStr As String
+    For x = 0 To wCount - 2
+        For y = x + 1 To wCount - 1
+            If Val(Replace(arrW(x), "W", "")) > Val(Replace(arrW(y), "W", "")) Then
+                tempStr = arrW(x)
+                arrW(x) = arrW(y)
+                arrW(y) = tempStr
+            End If
+        Next y
+    Next x
+
+    For i = 0 To wCount - 1
+        ReDim Preserve arrHeaders(0 To hCount)
+        arrHeaders(hCount) = arrW(i)
+        hCount = hCount + 1
+    Next i
+
+    ' Escrever Headers na linha 3 (Para alinhar com o label "Quartile" em A3)
+    For i = 0 To hCount - 1
+        Dim hDisp As String
+        hDisp = arrHeaders(i)
+        If Left(hDisp, 4) = "QTD_" Then hDisp = Replace(hDisp, "_", " ")
+        wsVar.Cells(3, colIndex + i).Value = hDisp
+    Next i
+
+    ' 4. Calcular Quartis, X, CV por Coluna
+    ' Linhas de Destino: Q1=4, Q2=5, Q3=6, Q4=7, X=8, CV=9 (Wait, looking at la2.png)
+    ' In la2.png:
+    ' Row 1: Select Month FB
+    ' Row 2: Select Quarter FB
+    ' Row 3: Quartile | Q1 | QTD Q2
+    ' Row 4: Q1 | Q2 | 88%
+    ' It shifted down! My code had labels at 3,4,5,6.
+    ' Let's look at la2.png carefully.
+    ' A3: "Quartile", B3: "Q1", C3: "95,24%"
+    ' A4: "Q1", B4: "Q2", C4: "88,89%"
+    ' A5: "Q2", B5: "Q3"...
+    ' Why did my code write "Q1" to B3??
+    ' Ah, the user's template has a header in Row 3! "Quartile".
+    ' But my data writing starts at row 3! `wsVar.Cells(4, cCol).Value = q1Avg`.
+    ' If row 3 is Q1 data, but the user's A3 is "Quartile", then my data is shifted UP by one row compared to the user's template!
+    ' The user expects:
+    ' Row 2: Headers (QTD, MTD, W...)
+    ' Row 3: Q1
+    ' Row 4: Q2
+    ' Row 5: Q3
+    ' Row 6: Q4
+    ' Row 7: X
+    ' Row 8: CV
+    ' Wait! In the image:
+    ' A3 = "Quartile". My code didn't write "Quartile".
+    ' Let's write the values starting at colIndex = 2 (B) for headers, and start data at column B if we want, OR start data at C and write headers to B2, C2...
+    ' To be safe, I'll let B1 and B2 be the selection strings.
+    ' Let's write Data Headers starting at column C.
+    ' Data will go into Rows 4 to 9.
+    ' Let's adjust row mapping: Q1=4, Q2=5, Q3=6, Q4=7, X=8, CV=9.
+
+    ' Guardar Médias do Q4 das Weeks para usar na aba Focus Group
+    Dim dictQ4Weeks As Object
+    Set dictQ4Weeks = CreateObject("Scripting.Dictionary")
+
+    For i = 0 To hCount - 1
+        Dim periodKey As String
+        periodKey = arrHeaders(i)
+
+        ' Coletar médias dos agentes para o período
+        Dim arrAvgs() As Double
+        Dim numAgents As Integer: numAgents = 0
+        Dim sumAll As Double: sumAll = 0
+
+        For Each k In dictAgentData.keys
+            Dim agDict2 As Object
+            Set agDict2 = dictAgentData(k)
+            If agDict2.exists(periodKey) Then
+                Dim dData As Variant
+                dData = agDict2(periodKey)
+                Dim avg As Double
+                avg = dData(0) / dData(1) ' Média simples
+
+                ReDim Preserve arrAvgs(0 To numAgents)
+                arrAvgs(numAgents) = avg
+                sumAll = sumAll + avg
+                numAgents = numAgents + 1
+            End If
+        Next k
+
+        If numAgents > 0 Then
+            ' Ordenar arrAvgs decrescente (Maior = Melhor)
+            For x = 0 To numAgents - 2
+                For y = x + 1 To numAgents - 1
+                    If arrAvgs(y) > arrAvgs(x) Then
+                        Dim tempD As Double
+                        tempD = arrAvgs(x)
+                        arrAvgs(x) = arrAvgs(y)
+                        arrAvgs(y) = tempD
+                    End If
+                Next y
+            Next x
+
+
+            ' Calcular cortes (25%)
+            Dim qSize As Integer
+            qSize = Int(numAgents / 4)
+            Dim remSize As Integer
+            remSize = numAgents Mod 4
+
+            Dim s1 As Integer, s2 As Integer, s3 As Integer, s4 As Integer
+            s1 = qSize: s2 = qSize: s3 = qSize: s4 = qSize
+
+            ' Distribute remainder to the first buckets
+            If remSize > 0 Then s1 = s1 + 1
+            If remSize > 1 Then s2 = s2 + 1
+            If remSize > 2 Then s3 = s3 + 1
+
+            ' Se numAgents < 4
+            If numAgents < 4 Then
+                s1 = 1: s2 = 0: s3 = 0: s4 = 0
+                If numAgents = 2 Then s2 = 1
+                If numAgents = 3 Then s2 = 1: s3 = 1
+            End If
+
+
+            Dim q1Sum As Double, q2Sum As Double, q3Sum As Double, q4Sum As Double
+            q1Sum = 0: q2Sum = 0: q3Sum = 0: q4Sum = 0
+            Dim idx As Integer: idx = 0
+
+            For x = 1 To s1: q1Sum = q1Sum + arrAvgs(idx): idx = idx + 1: Next x
+            For x = 1 To s2: q2Sum = q2Sum + arrAvgs(idx): idx = idx + 1: Next x
+            For x = 1 To s3: q3Sum = q3Sum + arrAvgs(idx): idx = idx + 1: Next x
+            For x = 1 To s4: q4Sum = q4Sum + arrAvgs(idx): idx = idx + 1: Next x
+
+            Dim q1Avg As Double, q2Avg As Double, q3Avg As Double, q4Avg As Double
+            If s1 > 0 Then q1Avg = q1Sum / s1 Else q1Avg = 0
+            If s2 > 0 Then q2Avg = q2Sum / s2 Else q2Avg = 0
+            If s3 > 0 Then q3Avg = q3Sum / s3 Else q3Avg = 0
+            If s4 > 0 Then q4Avg = q4Sum / s4 Else q4Avg = 0
+
+            Dim xAvg As Double
+            xAvg = sumAll / numAgents
+
+            ' Desvio Padrão Populacional
+            Dim sumSq As Double: sumSq = 0
+            For x = 0 To numAgents - 1
+                sumSq = sumSq + ((arrAvgs(x) - xAvg) ^ 2)
+            Next x
+            Dim stdevP As Double
+            If numAgents > 1 Then stdevP = Sqr(sumSq / numAgents) Else stdevP = 0
+
+            Dim cvVal As Double
+            If xAvg > 0 Then cvVal = stdevP / xAvg Else cvVal = 0
+
+            ' Escrever na Planilha Var SQS
+            Dim cCol As Integer
+            cCol = colIndex + i
+            If s1 > 0 Then wsVar.Cells(4, cCol).Value = q1Avg
+            If s2 > 0 Then wsVar.Cells(5, cCol).Value = q2Avg
+            If s3 > 0 Then wsVar.Cells(6, cCol).Value = q3Avg
+            If s4 > 0 Then wsVar.Cells(7, cCol).Value = q4Avg
+            wsVar.Cells(8, cCol).Value = xAvg
+            wsVar.Cells(9, cCol).Value = cvVal
+
+            ' Se for uma Week, guardar Q4Avg
+            If Left(periodKey, 1) = "W" Then
+                dictQ4Weeks.Add periodKey, q4Avg
+            End If
+        End If
+    Next i
+
+    ' Formatar Manage Variation SQS
+    wsVar.Range(wsVar.Cells(4, 3), wsVar.Cells(8, colIndex + hCount - 1)).NumberFormat = "0%"
+    wsVar.Range(wsVar.Cells(9, 3), wsVar.Cells(9, colIndex + hCount - 1)).NumberFormat = "0%"
+
+    ' 5. Focus Group
+    wsFocus.Cells.ClearContents
+    wsFocus.Range("A1").Value = "AGENT"
+    wsFocus.Range("B1").Value = "Week FB"
+    wsFocus.Range("C1").Value = "%SQS Agent LvL"
+    wsFocus.Range("D1").Value = "Weeks Below Q4 avg"
+
+    Dim focusRow As Long: focusRow = 2
+
+    For Each k In dictAgentData.keys
+        Dim agDict3 As Object
+        Set agDict3 = dictAgentData(k)
+
+        ' Contar quantas weeks esse agente ficou abaixo do Q4 avg da respectiva week
+        Dim countBelow As Integer: countBelow = 0
+        Dim wk As Variant
+
+        For Each wk In dictQ4Weeks.keys
+            If agDict3.exists(wk) Then
+                Dim wData As Variant
+                wData = agDict3(wk)
+                Dim wAvg As Double
+                wAvg = wData(0) / wData(1)
+
+                If wAvg < dictQ4Weeks(wk) Then
+                    countBelow = countBelow + 1
+                End If
+            End If
+        Next wk
+
+        ' Se tiver ao menos 1 abaixo, listá-lo para cada week abaixo
+        If countBelow > 0 Then
+            For Each wk In dictQ4Weeks.keys
+                If agDict3.exists(wk) Then
+                    Dim wData2 As Variant
+                    wData2 = agDict3(wk)
+                    Dim wAvg2 As Double
+                    wAvg2 = wData2(0) / wData2(1)
+
+                    If wAvg2 < dictQ4Weeks(wk) Then
+                        wsFocus.Cells(focusRow, 1).Value = k
+                        wsFocus.Cells(focusRow, 2).Value = wk
+                        wsFocus.Cells(focusRow, 3).Value = wAvg2
+                        wsFocus.Cells(focusRow, 4).Value = countBelow
+                        focusRow = focusRow + 1
+                    End If
+                End If
+            Next wk
+        End If
+    Next k
+
+    wsFocus.Columns("C").NumberFormat = "0.00%"
+
+    Application.Calculation = xlCalculationAutomatic
+    Application.ScreenUpdating = True
+
+    MsgBox "Atualização concluída com sucesso!", vbInformation, "Automação OKR"
+End Sub
